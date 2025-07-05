@@ -1,0 +1,92 @@
+# Environment variables
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Data directories
+data/
+logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+go.sum
+
+# Binaries
+bin/
+dist/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.pid
+
+# Certificates
+*.pem
+*.key
+*.crt
+*.csr
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# MinIO
+.minio.sys/
+
+# PostgreSQL
+*.sql.gz
+*.dump
+
+# Node (for future frontend)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn
+
+# Build outputs
+build/
+dist/
+out/
+
+# Coverage
+*.lcov
+coverage/
+.nyc_output
+
+# OS files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Docker
+docker-compose.override.yml
+.dockerignore
+
+# Secrets
+secrets/
+*.secret
+*.private
+
+# Upload temp files
+uploads/
+temp/
