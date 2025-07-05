@@ -12,7 +12,6 @@ services:
     volumes:
       - ./postgres/init:/docker-entrypoint-initdb.d
       - ../data/postgres:/var/lib/postgresql/data
-      - ../logs/postgres:/var/log/postgresql
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     networks:
@@ -22,6 +21,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    # Simplified command without logging to file
     command: >
       postgres
       -c shared_buffers=256MB
@@ -36,23 +36,15 @@ services:
       -c work_mem=4MB
       -c min_wal_size=1GB
       -c max_wal_size=4GB
-      -c log_destination='stderr'
-      -c logging_collector=on
-      -c log_directory='/var/log/postgresql'
-      -c log_filename='postgresql-%Y-%m-%d_%H%M%S.log'
-      -c log_rotation_age=1d
-      -c log_rotation_size=100MB
 
   # Redis/KeyDB - Cache y sesiones
   redis:
     image: eqalpha/keydb:alpine
     container_name: chat_redis
     restart: unless-stopped
-    command: keydb-server /etc/keydb/keydb.conf --requirepass ${REDIS_PASSWORD}
+    command: keydb-server --requirepass ${REDIS_PASSWORD}
     volumes:
-      - ./redis/redis.conf:/etc/keydb/keydb.conf
       - ../data/redis:/data
-      - ../logs/redis:/var/log/keydb
     ports:
       - "${REDIS_PORT:-6379}:6379"
     networks:
@@ -75,7 +67,6 @@ services:
       MINIO_BROWSER_REDIRECT_URL: ${MINIO_BROWSER_REDIRECT_URL:-http://localhost:9001}
     volumes:
       - ../data/minio:/data
-      - ../logs/minio:/var/log/minio
     ports:
       - "${MINIO_PORT:-9000}:9000"
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
