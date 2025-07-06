@@ -7,8 +7,12 @@ RUN apk add --no-cache git make
 # Set working directory
 WORKDIR /app
 
-# Copy go mod files
-COPY src/go.mod src/go.sum ./
+# Copy go mod files (go.sum might not exist yet)
+COPY src/go.mod ./
+COPY src/go.sum* ./
+
+# Download dependencies (this will create go.sum if it doesn't exist)
+RUN go mod download
 
 # Download dependencies
 RUN go mod download

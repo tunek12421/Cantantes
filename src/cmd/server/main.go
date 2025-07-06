@@ -8,14 +8,14 @@ import (
 	"os/signal"
 	"time"
 
+	"chat-e2ee/internal/config"
+	"chat-e2ee/internal/database"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/joho/godotenv"
-
-	"chat-e2ee/internal/config"
-	"chat-e2ee/internal/database"
 )
 
 func main() {

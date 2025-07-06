@@ -41,3 +41,13 @@ case $SERVICE in
         exit 1
         ;;
 esac
+
+# Show help if no argument
+if [ -z "$SERVICE" ]; then
+    echo "Usage: $0 [service|all]"
+    echo "Services: postgres, redis, minio, pgadmin, backend, all"
+    echo "Options:"
+    echo "  -f    Follow log output"
+    echo "Example: $0 postgres -f"
+    exit 1
+fi

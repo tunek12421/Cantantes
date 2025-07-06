@@ -108,3 +108,32 @@ else
     echo -e "${RED}Some services are not healthy. Please check logs.${NC}"
     exit 1
 fi
+
+
+# Check services with proper credentials
+if [ -n "$POSTGRES_USER" ] && [ -n "$POSTGRES_DB" ]; then
+    check_service "postgres" "docker-compose exec -T postgres pg_isready -U '$POSTGRES_USER' -d '$POSTGRES_DB'" "5432"
+else
+    check_service "postgres" "docker-compose exec -T postgres pg_isready" "5432"
+fi
+POSTGRES_OK=$?
+
+# Redis check with authentication
+if [ -n "$REDIS_PASSWORD" ]; then
+    check_service "redis" "docker-compose exec -T redis keydb-cli -a '$REDIS_PASSWORD' ping" "6379"
+else
+    check_service "redis" "docker-compose exec -T redis keydb-cli ping" "6379"
+fi
+REDIS_OK=$?
+
+check_service "minio" "curl -s http://localhost:9000/minio/health/live" "9000/9001"
+MINIO_OK=$?
+
+# Check backend if running
+if docker ps --format "{{.Names}}" | grep -q "chat_backend"; then
+    check_service "backend" "curl -s http://localhost:8080/health" "8080"
+    BACKEND_OK=$?
+else
+    echo -e "${YELLOW}! backend${NC} - Not started (run ./scripts/backend-start.sh to start)"
+    BACKEND_OK=0  # Don't count as error if not started
+fi

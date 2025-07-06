@@ -512,4 +512,76 @@ nano docker/.env  # Configurar credenciales
 
 ---
 
+---
+
+### `backend-init.sh`
+**Propósito:** Inicializa el módulo Go del backend y descarga dependencias
+
+**Cuándo usarlo:** 
+- Primera vez antes de ejecutar el backend
+- Si falta el archivo go.sum
+- Después de agregar nuevas dependencias
+
+**Ejemplo:**
+```bash
+./scripts/backend-init.sh
+```
+
+**Qué hace:**
+- Verifica que Go esté instalado
+- Inicializa go.mod si no existe
+- Descarga todas las dependencias
+- Genera go.sum
+- Verifica que el código compile
+
+---
+
+### `backend-start.sh`
+**Propósito:** Construye y levanta el backend con Docker
+
+**Cuándo usarlo:** Para ejecutar el backend en modo producción
+
+**Ejemplo:**
+```bash
+./scripts/backend-start.sh
+```
+
+**Características:**
+- Verifica que los servicios base estén corriendo
+- Inicializa el módulo Go si es necesario
+- Construye la imagen Docker
+- Levanta el contenedor del backend
+
+---
+
+### `backend-dev.sh`
+**Propósito:** Ejecuta el backend en modo desarrollo con hot reload
+
+**Cuándo usarlo:** Durante el desarrollo para ver cambios en tiempo real
+
+**Ejemplo:**
+```bash
+./scripts/backend-dev.sh
+```
+
+**Características:**
+- Usa Air para hot reload
+- Carga variables de entorno locales
+- No requiere Docker para el backend
+- Ideal para desarrollo rápido
+
+---
+
+### `stop-backend.sh`
+**Propósito:** Detiene solo el servicio backend
+
+**Cuándo usarlo:** Cuando necesitas detener el backend sin afectar otros servicios
+
+**Ejemplo:**
+```bash
+./scripts/stop-backend.sh
+```
+
+---
+
 *Última actualización: Enero 2025*

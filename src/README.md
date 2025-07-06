@@ -212,3 +212,13 @@ CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o chat-e2ee cmd/server/main.
 # Con Docker
 docker build -f docker/backend/Dockerfile -t chat-e2ee-backend .
 ```
+
+## 🔧 Servicios
+
+| Servicio | Puerto | Descripción |
+|----------|--------|-------------|
+| PostgreSQL | 5432 | Base de datos principal |
+| Redis/KeyDB | 6379 | Cache y sesiones |
+| MinIO | 9000/9001 | Almacenamiento de media |
+| pgAdmin | 5050 | Admin DB (solo dev) |
+| Backend API | 8080 | API REST y WebSocket |
