@@ -12,6 +12,7 @@ services:
     volumes:
       - ./postgres/init:/docker-entrypoint-initdb.d
       - ../data/postgres:/var/lib/postgresql/data
+      - ../logs/postgres:/var/log/postgresql
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     networks:
@@ -21,7 +22,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    # Simplified command without logging to file
     command: >
       postgres
       -c shared_buffers=256MB
@@ -36,15 +36,23 @@ services:
       -c work_mem=4MB
       -c min_wal_size=1GB
       -c max_wal_size=4GB
+      -c log_destination='stderr'
+      -c logging_collector=on
+      -c log_directory='/var/log/postgresql'
+      -c log_filename='postgresql-%Y-%m-%d_%H%M%S.log'
+      -c log_rotation_age=1d
+      -c log_rotation_size=100MB
 
   # Redis/KeyDB - Cache y sesiones
   redis:
     image: eqalpha/keydb:alpine
     container_name: chat_redis
     restart: unless-stopped
-    command: keydb-server --requirepass ${REDIS_PASSWORD}
+    command: keydb-server /etc/keydb/keydb.conf --requirepass ${REDIS_PASSWORD}
     volumes:
+      - ./redis/redis.conf:/etc/keydb/keydb.conf
       - ../data/redis:/data
+      - ../logs/redis:/var/log/keydb
     ports:
       - "${REDIS_PORT:-6379}:6379"
     networks:
@@ -67,6 +75,7 @@ services:
       MINIO_BROWSER_REDIRECT_URL: ${MINIO_BROWSER_REDIRECT_URL:-http://localhost:9001}
     volumes:
       - ../data/minio:/data
+      - ../logs/minio:/var/log/minio
     ports:
       - "${MINIO_PORT:-9000}:9000"
       - "${MINIO_CONSOLE_PORT:-9001}:9001"
@@ -77,6 +86,72 @@ services:
       interval: 30s
       timeout: 20s
       retries: 3
+
+  # Backend Go - API y WebSocket
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/backend/Dockerfile
+    container_name: chat_backend
+    restart: unless-stopped
+    environment:
+      # App
+      APP_ENV: ${APP_ENV}
+      APP_PORT: ${APP_PORT:-8080}
+      APP_DEBUG: ${APP_DEBUG:-false}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      
+      # Database
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      
+      # Redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      
+      # MinIO
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      
+      # JWT
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ACCESS_TOKEN_EXPIRE: ${JWT_ACCESS_TOKEN_EXPIRE:-15m}
+      JWT_REFRESH_TOKEN_EXPIRE: ${JWT_REFRESH_TOKEN_EXPIRE:-7d}
+      
+      # SMS
+      SMS_PROVIDER: ${SMS_PROVIDER:-mock}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN}
+      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER}
+      
+      # Rate Limiting
+      RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-100}
+      RATE_LIMIT_WINDOW: ${RATE_LIMIT_WINDOW:-1m}
+    volumes:
+      - ../logs/backend:/app/logs
+      - ../src:/app/src:ro # For development only
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    networks:
+      - chat_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
   # pgAdmin - Administración de PostgreSQL (opcional en producción)
   pgadmin:

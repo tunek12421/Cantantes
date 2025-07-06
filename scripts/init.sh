@@ -203,6 +203,22 @@ if grep -q "APP_ENV=development" .env; then
     echo -e "pgAdmin:       ${GREEN}http://localhost:5050${NC}"
 fi
 
+# Backend Go (si existe el Dockerfile)
+if [ -f "./backend/Dockerfile" ]; then
+    log_info "Building and starting Go backend..."
+    docker-compose build backend
+    docker-compose up -d backend
+    
+    # Esperar al backend
+    for i in {1..30}; do
+        if curl -s http://localhost:${APP_PORT:-8080}/health &> /dev/null; then
+            log_info "Backend API is ready ✓"
+            break
+        fi
+        sleep 1
+    done
+fi
+
 echo -e "\n${YELLOW}Next steps:${NC}"
 echo "1. Update SMS provider credentials in docker/.env"
 echo "   nano docker/.env"
