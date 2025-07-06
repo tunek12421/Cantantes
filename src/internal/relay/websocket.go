@@ -1,0 +1,173 @@
+package relay
+
+import (
+	"context"
+	"encoding/json"
+	"log"
+	"strings"
+	"time"
+
+	"chat-e2ee/internal/auth"
+	"chat-e2ee/internal/presence"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/websocket/v2"
+	"github.com/redis/go-redis/v9"
+)
+
+type Handler struct {
+	hub        *Hub
+	jwtService *auth.JWTService
+}
+
+func NewHandler(hub *Hub, jwtService *auth.JWTService) *Handler {
+	return &Handler{
+		hub:        hub,
+		jwtService: jwtService,
+	}
+}
+
+func (h *Handler) UpgradeHandler() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		if websocket.IsWebSocketUpgrade(c) {
+			token := c.Query("token")
+			if token == "" {
+				authHeader := c.Get("Authorization")
+				if authHeader != "" {
+					parts := strings.Split(authHeader, " ")
+					if len(parts) == 2 && parts[0] == "Bearer" {
+						token = parts[1]
+					}
+				}
+			}
+
+			if token == "" {
+				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+					"error": "Missing authentication token",
+				})
+			}
+
+			claims, err := h.jwtService.ValidateToken(token)
+			if err != nil {
+				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+					"error": "Invalid token",
+				})
+			}
+
+			if claims.Type != "access" {
+				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+					"error": "Invalid token type",
+				})
+			}
+
+			c.Locals("userID", claims.UserID)
+			c.Locals("deviceID", claims.DeviceID)
+
+			log.Printf("WebSocket upgrade request from UserID: %s, DeviceID: %s", 
+				claims.UserID, claims.DeviceID)
+
+			return c.Next()
+		}
+
+		return fiber.ErrUpgradeRequired
+	}
+}
+
+func (h *Handler) WebSocketHandler() fiber.Handler {
+	return websocket.New(func(c *websocket.Conn) {
+		userID, ok := c.Locals("userID").(string)
+		if !ok || userID == "" {
+			log.Println("WebSocket: missing userID")
+			c.Close()
+			return
+		}
+
+		deviceID, ok := c.Locals("deviceID").(string)
+		if !ok || deviceID == "" {
+			log.Println("WebSocket: missing deviceID")
+			c.Close()
+			return
+		}
+
+		client := NewClient(h.hub, c, userID, deviceID)
+		
+		log.Printf("New WebSocket connection: UserID=%s, DeviceID=%s, ClientID=%s",
+			userID, deviceID, client.ID)
+
+		client.Start()
+	}, websocket.Config{
+		ReadBufferSize:    1024,
+		WriteBufferSize:   1024,
+		EnableCompression: true,
+	})
+}
+
+func (h *Handler) GetStats() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		stats := h.hub.GetStats()
+		
+		var onlineUsers []string
+		if h.hub.presence != nil {
+			ctx := c.Context()
+			onlineUsers, _ = h.hub.presence.GetOnlineUsers(ctx)
+		}
+
+		return c.JSON(fiber.Map{
+			"websocket": fiber.Map{
+				"total_connections":  stats.TotalConnections,
+				"active_connections": stats.ActiveConnections,
+				"messages_relayed":   stats.MessagesRelayed,
+				"last_activity":      stats.LastActivity,
+			},
+			"users": fiber.Map{
+				"online_count": len(onlineUsers),
+				"online_users": onlineUsers,
+			},
+		})
+	}
+}
+
+func (h *Handler) SendSystemMessage(userID string, message interface{}) error {
+	data, err := json.Marshal(message)
+	if err != nil {
+		return err
+	}
+
+	h.hub.BroadcastToUser(userID, data)
+	return nil
+}
+
+func (h *Handler) IsUserOnline(userID string) bool {
+	clients := h.hub.GetUserClients(userID)
+	return len(clients) > 0
+}
+
+func (h *Handler) DisconnectUser(userID string) {
+	clients := h.hub.GetUserClients(userID)
+	for _, client := range clients {
+		client.Close()
+	}
+}
+
+func CreateRelayService(redisClient *redis.Client, jwtService *auth.JWTService) (*Handler, *Hub) {
+	presenceTracker := presence.NewTracker(redisClient)
+	hub := NewHub(presenceTracker)
+
+	go hub.Run()
+
+	handler := NewHandler(hub, jwtService)
+
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			ctx := context.Background()
+			if err := presenceTracker.CleanupInactive(ctx, 10*time.Minute); err != nil {
+				log.Printf("Presence cleanup error: %v", err)
+			}
+		}
+	}()
+
+	return handler, hub
+}
