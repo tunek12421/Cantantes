@@ -1,3 +1,22 @@
+#!/bin/bash
+
+# Restore complete docker-compose.yml with backend service
+
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+echo -e "${YELLOW}=== Restoring Complete Docker Compose Configuration ===${NC}\n"
+
+# Navigate to docker directory
+cd "$(dirname "$0")/../docker"
+
+# Backup current docker-compose.yml
+cp docker-compose.yml docker-compose-minimal.yml
+
+# Create complete docker-compose.yml with backend service
+cat > docker-compose.yml << 'EOF'
 services:
   # PostgreSQL - Base de datos principal
   postgres:
@@ -170,3 +189,16 @@ networks:
     ipam:
       config:
         - subnet: 172.20.0.0/16
+EOF
+
+echo -e "${GREEN}✓ docker-compose.yml restored with backend service${NC}"
+
+# Verify the file
+if grep -q "backend:" docker-compose.yml; then
+    echo -e "${GREEN}✓ Backend service definition confirmed${NC}"
+else
+    echo -e "${YELLOW}⚠ Warning: Backend service might not be properly defined${NC}"
+fi
+
+echo -e "\n${YELLOW}Now you can run:${NC}"
+echo "  ./scripts/backend-start.sh"

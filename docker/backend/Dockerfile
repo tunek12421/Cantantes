@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.23-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git make
@@ -12,9 +12,6 @@ COPY src/go.mod ./
 COPY src/go.sum* ./
 
 # Download dependencies (this will create go.sum if it doesn't exist)
-RUN go mod download
-
-# Download dependencies
 RUN go mod download
 
 # Copy source code
