@@ -1,8 +1,7 @@
 # Environment variables
 .env
-.env.local
-.env.production
-.env.*.local
+.env.*
+!.env.example
 
 # Data directories
 data/
@@ -30,6 +29,7 @@ go.sum
 # Binaries
 bin/
 dist/
+tmp/
 
 # Temporary files
 *.tmp
@@ -47,40 +47,17 @@ dist/
 *.bak
 *.backup
 *.old
+.env.backup.*
 
-# MinIO
-.minio.sys/
-
-# PostgreSQL
-*.sql.gz
-*.dump
-
-# Node (for future frontend)
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.npm
-.yarn
-
-# Build outputs
-build/
-dist/
-out/
-
-# Coverage
-*.lcov
-coverage/
-.nyc_output
+# Docker
+docker-compose.override.yml
+docker-compose-*.yml
+!docker-compose.yml
 
 # OS files
 Thumbs.db
 ehthumbs.db
 Desktop.ini
-
-# Docker
-docker-compose.override.yml
-.dockerignore
 
 # Secrets
 secrets/
@@ -90,3 +67,17 @@ secrets/
 # Upload temp files
 uploads/
 temp/
+
+# Air (Go hot reload)
+.air.toml
+
+# Test coverage
+*.lcov
+coverage/
+.nyc_output
+
+# Build outputs
+build/
+dist/
+out/
+chat-e2ee

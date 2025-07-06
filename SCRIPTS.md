@@ -1,586 +1,231 @@
-# 📚 Guía de Scripts - Chat E2EE
+# 📚 Scripts de Chat E2EE
 
-Esta guía detalla todos los scripts disponibles en el proyecto, su propósito y cuándo utilizarlos.
+Guía de uso de los scripts del proyecto.
 
 ## 🚀 Inicio Rápido
 
-### Trabajo diario con el proyecto
-
 ```bash
-# Iniciar el proyecto
-./scripts/start.sh
+# Primera vez
+./scripts/init.sh       # Configuración inicial
+./scripts/start.sh      # Iniciar servicios
 
-# Verificar que todo esté funcionando
-./scripts/health-check.sh
-
-# Ver logs mientras desarrollas
-./scripts/logs.sh postgres -f
-
-# Detener el proyecto al terminar
-./scripts/stop.sh
+# Desarrollo diario
+./scripts/start.sh      # Iniciar
+./scripts/status.sh     # Verificar estado
+./scripts/logs.sh -f    # Ver logs
+./scripts/stop.sh       # Detener
 ```
 
-## 📋 Categorías de Scripts
+## 📋 Scripts Disponibles
 
-Los scripts están organizados en categorías según su frecuencia de uso y propósito.
+### `init.sh`
+**Configuración inicial del proyecto**
+
+```bash
+./scripts/init.sh
+```
+
+- Verifica prerequisitos (Docker, Docker Compose)
+- Crea directorios necesarios
+- Genera archivo `.env` con contraseñas seguras
+- Configura permisos
+
+⚠️ **Solo ejecutar una vez al clonar el repositorio**
 
 ---
 
-## 🟢 Scripts de USO FRECUENTE
-
-Estos son los scripts que usarás en tu día a día de desarrollo.
-
 ### `start.sh`
-**Propósito:** Inicia todos los servicios de Docker (PostgreSQL, Redis, MinIO)
+**Inicia todos los servicios**
 
-**Cuándo usarlo:** Cada vez que quieras comenzar a trabajar en el proyecto
-
-**Ejemplo:**
 ```bash
 ./scripts/start.sh
 ```
 
-**Alternativa manual:**
-```bash
-cd docker && docker-compose up -d
-```
+Levanta: PostgreSQL, Redis, MinIO y Backend
 
 ---
 
 ### `stop.sh`
-**Propósito:** Detiene todos los servicios de Docker de forma segura
+**Detiene todos los servicios**
 
-**Cuándo usarlo:** Cuando termines de trabajar o necesites liberar recursos
-
-**Ejemplo:**
 ```bash
 ./scripts/stop.sh
 ```
+
+---
+
+### `restart.sh`
+**Reinicia todos los servicios**
+
+```bash
+./scripts/restart.sh
+```
+
+Útil después de cambiar configuraciones.
 
 ---
 
 ### `logs.sh`
-**Propósito:** Ver logs de cualquier servicio en tiempo real
+**Ver logs de servicios**
 
-**Cuándo usarlo:** Para debugging o monitorear el comportamiento de los servicios
-
-**Sintaxis:**
 ```bash
-./scripts/logs.sh [servicio] [-f]
-```
+# Todos los servicios
+./scripts/logs.sh
 
-**Ejemplos:**
-```bash
-# Ver logs de PostgreSQL en tiempo real
+# Servicio específico
+./scripts/logs.sh postgres
+
+# Seguir logs en tiempo real
 ./scripts/logs.sh postgres -f
-
-# Ver últimas líneas de logs de Redis
-./scripts/logs.sh redis
-
-# Ver logs de todos los servicios
-./scripts/logs.sh all -f
+./scripts/logs.sh -f
 ```
 
-**Servicios disponibles:** `postgres`, `redis`, `minio`, `pgadmin`, `all`
+Servicios: `postgres`, `redis`, `minio`, `backend`
 
 ---
 
-### `health-check.sh`
-**Propósito:** Verifica el estado de todos los servicios y muestra estadísticas
+### `status.sh`
+**Estado completo del sistema**
 
-**Cuándo usarlo:** 
-- Después de iniciar los servicios
-- Si sospechas que algo no funciona bien
-- Para ver uso de recursos
-
-**Ejemplo:**
 ```bash
-./scripts/health-check.sh
+./scripts/status.sh
 ```
 
-**Información que muestra:**
-- Estado de cada servicio (✓ funcionando, ✗ detenido)
-- Uso de disco
-- Uso de memoria
-- Errores recientes en logs
+Muestra:
+- Estado de cada servicio
+- Uso de recursos
+- Espacio en disco
+- Errores recientes
 
 ---
 
-### `psql.sh`
-**Propósito:** Acceso rápido a la consola de PostgreSQL
+### `dev.sh`
+**Modo desarrollo con hot reload**
 
-**Cuándo usarlo:** Para ejecutar consultas SQL o inspeccionar la base de datos
-
-**Ejemplos:**
 ```bash
-# Sesión interactiva
-./scripts/psql.sh
-
-# Ejecutar una consulta directa
-./scripts/psql.sh "SELECT COUNT(*) FROM users;"
-
-# Ver todas las tablas
-./scripts/psql.sh "\dt"
+./scripts/dev.sh
 ```
+
+- Ejecuta el backend localmente (sin Docker)
+- Recarga automática al cambiar código
+- Ideal para desarrollo rápido
+
+**Requisitos**: Go 1.23+, Air
 
 ---
 
-### `redis-cli.sh`
-**Propósito:** Acceso rápido a la consola de Redis/KeyDB
+### `shell.sh`
+**Acceso rápido a diferentes shells**
 
-**Cuándo usarlo:** Para inspeccionar cache, sesiones o debug
-
-**Ejemplos:**
 ```bash
-# Sesión interactiva
-./scripts/redis-cli.sh
+# PostgreSQL
+./scripts/shell.sh postgres
+./scripts/shell.sh postgres "SELECT * FROM users"
 
-# Ejecutar comando directo
-./scripts/redis-cli.sh INFO
+# Redis
+./scripts/shell.sh redis
+./scripts/shell.sh redis INFO
 
-# Ver todas las keys
-./scripts/redis-cli.sh KEYS "*"
+# Contenedor backend
+./scripts/shell.sh backend
+
+# MinIO
+./scripts/shell.sh minio
 ```
-
----
-
-## 🟡 Scripts de USO OCASIONAL
-
-Scripts que usarás en situaciones específicas pero no diariamente.
-
-### `restart.sh`
-**Propósito:** Reinicia todos los servicios
-
-**Cuándo usarlo:**
-- Si un servicio no responde correctamente
-- Después de cambiar configuraciones
-- Para aplicar cambios en variables de entorno
-
-**Ejemplos:**
-```bash
-# Reinicio normal
-./scripts/restart.sh
-
-# Reinicio completo (BORRA TODOS LOS DATOS)
-./scripts/restart.sh --clean
-```
-
-⚠️ **PRECAUCIÓN:** La opción `--clean` elimina todas las bases de datos y archivos almacenados.
 
 ---
 
 ### `backup.sh`
-**Propósito:** Crea backups encriptados de PostgreSQL y MinIO
+**Crear backups encriptados**
 
-**Cuándo usarlo:**
-- Antes de actualizaciones importantes
-- Periódicamente como buena práctica
-- Antes de experimentos riesgosos
-
-**Ejemplo:**
 ```bash
 ./scripts/backup.sh
 ```
 
-**Características:**
-- Encripta los backups con AES-256
-- Guarda en `/home/usuario/backups/chat-e2ee`
-- Limpia backups antiguos (más de 7 días)
-- Opcionalmente sube a Backblaze B2 si está configurado
+- Backup de PostgreSQL y MinIO
+- Encriptación AES-256
+- Limpieza automática (>7 días)
+- Ubicación: `~/backups/chat-e2ee`
 
 ---
 
 ### `info.sh`
-**Propósito:** Muestra información rápida del proyecto
+**Información rápida del proyecto**
 
-**Cuándo usarlo:** Como referencia rápida de URLs, puertos y comandos
-
-**Ejemplo:**
 ```bash
 ./scripts/info.sh
 ```
 
-**Muestra:**
-- URLs de servicios
-- Comandos rápidos
-- Estado actual
-- Próximos pasos
+Muestra URLs, comandos útiles y estado.
 
----
+## 🔧 Ejemplos de Uso
 
-## 🔴 Scripts de CONFIGURACIÓN INICIAL
-
-Estos scripts generalmente se ejecutan una sola vez al configurar el proyecto.
-
-### `full-setup.sh`
-**Propósito:** Instalación completa del proyecto desde cero
-
-**Cuándo usarlo:**
-- Primera vez que clonas el repositorio
-- Si necesitas reinstalar todo
-- Si hay problemas graves de configuración
-
-**Qué hace:**
-1. Verifica prerequisitos (Docker, Docker Compose)
-2. Crea estructura de directorios
-3. Configura permisos
-4. Genera archivo .env con contraseñas seguras
-5. Inicia todos los servicios
-6. Inicializa la base de datos
-
-**Ejemplo:**
-```bash
-./scripts/full-setup.sh
-```
-
----
-
-### `init.sh`
-**Propósito:** Inicialización básica del proyecto
-
-**Cuándo usarlo:**
-- Después de clonar el repo (si no usas full-setup.sh)
-- Para reinicializar servicios
-
-**Diferencia con full-setup.sh:** Menos exhaustivo, asume que ya tienes algunas cosas configuradas
-
----
-
-### `setup-env.sh`
-**Propósito:** Genera archivo .env con contraseñas seguras
-
-**Cuándo usarlo:**
-- Si no existe .env
-- Si quieres regenerar todas las contraseñas
-- Si perdiste el archivo .env
-
-**Ejemplo:**
-```bash
-./scripts/setup-env.sh
-```
-
-⚠️ **NOTA:** Hará backup del .env existente antes de crear uno nuevo
-
----
-
-### `fix-postgres-permissions.sh`
-**Propósito:** Soluciona problemas de permisos en PostgreSQL
-
-**Cuándo usarlo:** SOLO si encuentras errores de permisos al escribir logs
-
-**Qué hace:**
-1. Detiene servicios
-2. Limpia directorios problemáticos
-3. Recrea con permisos correctos
-4. Modifica configuración de PostgreSQL
-5. Reinicia servicios
-
-**Ejemplo:**
-```bash
-./scripts/fix-postgres-permissions.sh
-```
-
-📌 **NOTA:** Este script ya se ejecutó una vez. No deberías necesitarlo nuevamente.
-
----
-
-## 🔍 Scripts de DIAGNÓSTICO
-
-Para troubleshooting y resolución de problemas.
-
-### `diagnose-postgres.sh`
-**Propósito:** Diagnóstico detallado de problemas con PostgreSQL
-
-**Cuándo usarlo:** Si PostgreSQL no funciona o no puedes conectarte
-
-**Qué verifica:**
-- Estado del contenedor
-- Logs detallados
-- Proceso de PostgreSQL
-- Conectividad
-- Permisos de archivos
-- Uso de recursos
-
-**Ejemplo:**
-```bash
-./scripts/diagnose-postgres.sh
-```
-
----
-
-### `check-env.sh`
-**Propósito:** Verifica que todas las variables de entorno estén configuradas
-
-**Cuándo usarlo:**
-- Si sospechas problemas de configuración
-- Después de modificar .env
-- Para verificar que no hay valores por defecto
-
-**Ejemplo:**
-```bash
-./scripts/check-env.sh
-```
-
----
-
-### `check-ports.sh`
-**Propósito:** Verifica disponibilidad de puertos necesarios
-
-**Cuándo usarlo:**
-- Si los servicios no pueden iniciar
-- Error "port already in use"
-- Antes de la instalación inicial
-
-**Puertos que verifica:**
-- 5432 (PostgreSQL)
-- 6379 (Redis)
-- 9000 (MinIO API)
-- 9001 (MinIO Console)
-- 5050 (pgAdmin)
-
-**Ejemplo:**
-```bash
-./scripts/check-ports.sh
-```
-
----
-
-### `verify-all.sh`
-**Propósito:** Ejecuta todas las verificaciones en secuencia
-
-**Cuándo usarlo:** Para un diagnóstico completo del sistema
-
-**Ejecuta en orden:**
-1. check-env.sh
-2. check-ports.sh
-3. health-check.sh
-
-**Ejemplo:**
-```bash
-./scripts/verify-all.sh
-```
-
----
-
-### `system-info.sh`
-**Propósito:** Muestra información del sistema y recursos
-
-**Cuándo usarlo:**
-- Para verificar requisitos del sistema
-- Documentar entorno de desarrollo
-- Troubleshooting de performance
-
-**Muestra:**
-- OS y versión
-- CPU y RAM
-- Espacio en disco
-- Versiones de Docker
-- Uso de recursos del proyecto
-
-**Ejemplo:**
-```bash
-./scripts/system-info.sh
-```
-
----
-
-### `list-files.sh`
-**Propósito:** Lista la estructura de archivos del proyecto
-
-**Cuándo usarlo:**
-- Para ver la organización del proyecto
-- Verificar que no falten archivos
-- Documentación
-
-**Ejemplo:**
-```bash
-./scripts/list-files.sh
-```
-
----
-
-## 💼 Flujos de Trabajo Comunes
-
-### Desarrollo Diario
+### Flujo de desarrollo típico
 
 ```bash
-# Mañana - Comenzar a trabajar
-./scripts/start.sh
-./scripts/health-check.sh  # Verificar que todo está OK
+# Mañana
+./scripts/start.sh          # Iniciar servicios
+./scripts/status.sh         # Verificar que todo esté OK
 
 # Durante el desarrollo
-./scripts/logs.sh postgres -f  # En una terminal separada
-./scripts/psql.sh              # Para queries SQL
-./scripts/redis-cli.sh         # Para verificar cache
+./scripts/dev.sh            # En una terminal
+./scripts/logs.sh -f        # En otra terminal
 
-# Noche - Terminar de trabajar
-./scripts/stop.sh
+# Debugging
+./scripts/shell.sh postgres # Consultas SQL
+./scripts/shell.sh redis    # Verificar cache
+
+# Noche
+./scripts/stop.sh          # Detener todo
 ```
 
-### Debugging de Problemas
+### Solución de problemas
 
 ```bash
-# Verificación básica
-./scripts/health-check.sh
+# Ver qué está pasando
+./scripts/status.sh
+./scripts/logs.sh postgres -f
 
-# Si algo no funciona
-./scripts/logs.sh [servicio] -f
-./scripts/diagnose-postgres.sh
-
-# Verificación completa
-./scripts/verify-all.sh
-
-# Reiniciar si es necesario
+# Reiniciar si hay problemas
 ./scripts/restart.sh
 ```
 
-### Mantenimiento Semanal
+## 📍 URLs y Puertos
 
-```bash
-# Backup de datos
-./scripts/backup.sh
-
-# Verificar salud del sistema
-./scripts/system-info.sh
-./scripts/health-check.sh
-
-# Limpiar logs antiguos (opcional)
-docker system prune -f
-```
-
-### Después de Clonar el Repositorio
-
-```bash
-# Opción 1: Setup completo automático
-./scripts/full-setup.sh
-
-# Opción 2: Setup manual
-./scripts/setup-env.sh
-nano docker/.env  # Configurar credenciales
-./scripts/init.sh
-./scripts/health-check.sh
-```
+| Servicio | URL/Puerto | Credenciales |
+|----------|------------|--------------|
+| Backend API | http://localhost:8080 | - |
+| MinIO Console | http://localhost:9001 | Ver `docker/.env` |
+| PostgreSQL | localhost:5432 | Ver `docker/.env` |
+| Redis | localhost:6379 | Ver `docker/.env` |
 
 ## 🛡️ Mejores Prácticas
 
-1. **Siempre verifica el estado** después de iniciar servicios:
+1. **Siempre verifica el estado** después de iniciar:
    ```bash
-   ./scripts/health-check.sh
+   ./scripts/status.sh
    ```
 
-2. **Haz backups regulares** especialmente antes de cambios importantes:
+2. **Haz backups regulares**:
    ```bash
    ./scripts/backup.sh
    ```
 
-3. **Monitorea logs** cuando debuguees problemas:
+3. **No edites manualmente** los archivos en `data/`
+
+4. **Para desarrollo**, usa el modo dev:
    ```bash
-   ./scripts/logs.sh [servicio] -f
+   ./scripts/dev.sh
    ```
 
-4. **No uses `--clean`** a menos que realmente quieras borrar todos los datos
-
-5. **Revisa las variables de entorno** después de actualizaciones:
-   ```bash
-   ./scripts/check-env.sh
-   ```
-
-## 📝 Notas Adicionales
-
-- Todos los scripts deben ejecutarse desde la raíz del proyecto
-- Los scripts asumen que tienes Docker y Docker Compose instalados
-- Los datos se almacenan en `data/` (ignorado por git)
-- Los logs se almacenan en `logs/` (ignorado por git)
-- Las contraseñas se generan automáticamente en el primer setup
-
-## 🆘 Solución Rápida de Problemas
+## 🆘 Ayuda Rápida
 
 | Problema | Solución |
 |----------|----------|
-| "Permission denied" | `./scripts/fix-postgres-permissions.sh` |
-| "Port already in use" | `./scripts/check-ports.sh` luego cambiar puertos en .env |
-| "Container not running" | `./scripts/restart.sh` |
-| "Can't connect to PostgreSQL" | `./scripts/diagnose-postgres.sh` |
-| "Lost all data" | Restaurar desde backup con instrucciones en `/home/user/backups/chat-e2ee/RESTORE_INSTRUCTIONS.md` |
-
-## 🔗 Enlaces Útiles
-
-- **PostgreSQL**: http://localhost:5432
-- **Redis**: http://localhost:6379
-- **MinIO Console**: http://localhost:9001
-- **pgAdmin**: http://localhost:5050 (solo en modo desarrollo)
-
----
-
----
-
-### `backend-init.sh`
-**Propósito:** Inicializa el módulo Go del backend y descarga dependencias
-
-**Cuándo usarlo:** 
-- Primera vez antes de ejecutar el backend
-- Si falta el archivo go.sum
-- Después de agregar nuevas dependencias
-
-**Ejemplo:**
-```bash
-./scripts/backend-init.sh
-```
-
-**Qué hace:**
-- Verifica que Go esté instalado
-- Inicializa go.mod si no existe
-- Descarga todas las dependencias
-- Genera go.sum
-- Verifica que el código compile
-
----
-
-### `backend-start.sh`
-**Propósito:** Construye y levanta el backend con Docker
-
-**Cuándo usarlo:** Para ejecutar el backend en modo producción
-
-**Ejemplo:**
-```bash
-./scripts/backend-start.sh
-```
-
-**Características:**
-- Verifica que los servicios base estén corriendo
-- Inicializa el módulo Go si es necesario
-- Construye la imagen Docker
-- Levanta el contenedor del backend
-
----
-
-### `backend-dev.sh`
-**Propósito:** Ejecuta el backend en modo desarrollo con hot reload
-
-**Cuándo usarlo:** Durante el desarrollo para ver cambios en tiempo real
-
-**Ejemplo:**
-```bash
-./scripts/backend-dev.sh
-```
-
-**Características:**
-- Usa Air para hot reload
-- Carga variables de entorno locales
-- No requiere Docker para el backend
-- Ideal para desarrollo rápido
-
----
-
-### `stop-backend.sh`
-**Propósito:** Detiene solo el servicio backend
-
-**Cuándo usarlo:** Cuando necesitas detener el backend sin afectar otros servicios
-
-**Ejemplo:**
-```bash
-./scripts/stop-backend.sh
-```
+| Servicios no inician | `./scripts/status.sh` para diagnosticar |
+| Puerto en uso | Cambiar puerto en `docker/.env` |
+| Permisos denegados | Verificar permisos de `data/` |
+| Backend no conecta | Verificar que servicios base estén corriendo |
 
 ---
 

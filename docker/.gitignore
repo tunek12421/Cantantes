@@ -1,0 +1,15 @@
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Backup files
+*.backup
+*.bak
+docker-compose.yml.backup
+docker-compose-*.yml
+!docker-compose.yml
+
+# Temporary files
+*.tmp
+*.temp

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Quick start for Chat E2EE services
+# Start all Chat E2EE services
 
 # Colors
 GREEN='\033[0;32m'
@@ -9,25 +9,23 @@ NC='\033[0m'
 
 echo -e "${YELLOW}Starting Chat E2EE services...${NC}"
 
-# Navigate to docker directory
 cd "$(dirname "$0")/../docker"
 
-# Check if .env exists
+# Check .env
 if [ ! -f ".env" ]; then
-    echo -e "${RED}Error: .env file not found!${NC}"
-    echo "Run: ./scripts/setup-env.sh first"
+    echo -e "${RED}Error: .env not found! Run ./scripts/init.sh first${NC}"
     exit 1
 fi
 
-# Start all services
+# Start services
 docker-compose up -d
 
-# Wait a moment
+# Wait for services
+echo -e "\n${YELLOW}Waiting for services...${NC}"
 sleep 5
 
-# Quick health check
-echo -e "\n${YELLOW}Quick health check:${NC}"
+# Quick status check
+echo -e "\n${GREEN}Services started!${NC}"
 docker-compose ps
 
-echo -e "\n${GREEN}Services started!${NC}"
-echo "Run ./scripts/health-check.sh for detailed status"
+echo -e "\nRun ./scripts/status.sh for detailed status"

@@ -1,25 +1,24 @@
-# Binaries for programs and plugins
+# Go binaries
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
-
-# Test binary, built with `go test -c`
 *.test
-
-# Output of the go coverage tool
 *.out
+chat-e2ee
 
-# Go workspace file
+# Go workspace
 go.work
+vendor/
 
 # Air tmp directory
 tmp/
+.air.toml
 
 # Environment variables
 .env
-.env.local
+.env.*
 
 # IDE
 .idea/
@@ -36,9 +35,5 @@ Thumbs.db
 logs/
 
 # Build
-chat-e2ee
 build/
 dist/
-
-# Vendor (if using)
-vendor/
