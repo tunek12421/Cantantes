@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"time"
 
+	"chat-e2ee/internal/auth"
 	"chat-e2ee/internal/config"
 	"chat-e2ee/internal/database"
 
@@ -47,10 +48,37 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to connect to MinIO:", err)
 	}
-	
-	// Log MinIO connection success (using the client to avoid "declared and not used" error)
-	log.Printf("MinIO connected successfully to %s", cfg.MinIO.Endpoint)
-	_ = minioClient // Will be used when we implement media upload endpoints
+
+	// Initialize services
+	jwtService := auth.NewJWTService(
+		cfg.JWT.Secret,
+		cfg.JWT.AccessTokenDuration,
+		cfg.JWT.RefreshTokenDuration,
+	)
+
+	// SMS Provider selection
+	var smsProvider auth.SMSProvider
+	if cfg.SMS.Provider == "twilio" && cfg.SMS.AccountSID != "" {
+		smsProvider = auth.NewTwilioProvider(
+			cfg.SMS.AccountSID,
+			cfg.SMS.AuthToken,
+			cfg.SMS.FromNumber,
+		)
+		log.Println("Using Twilio SMS provider")
+	} else {
+		smsProvider = &auth.MockSMSProvider{}
+		log.Println("Using Mock SMS provider (development mode)")
+	}
+
+	// Initialize stores
+	otpStore := auth.NewRedisOTPStore(redis)
+	sessionStore := auth.NewSessionStore(redis)
+
+	// Initialize SMS service
+	smsService := auth.NewSMSService(smsProvider, otpStore)
+
+	// Initialize handlers
+	authHandler := auth.NewAuthHandler(db, jwtService, smsService, sessionStore)
 
 	// Create Fiber app
 	app := fiber.New(fiber.Config{
@@ -96,24 +124,56 @@ func main() {
 			"status":  "healthy",
 			"version": cfg.App.Version,
 			"uptime":  time.Since(startTime).String(),
+			"services": fiber.Map{
+				"postgres": "connected",
+				"redis":    "connected",
+				"minio":    "connected",
+			},
 		})
 	})
 
-	// API routes will be added here
+	// API routes
 	api := app.Group("/api/v1")
 
-	// Placeholder routes
+	// Public routes
 	api.Get("/", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"message": "Chat E2EE API v1",
 			"docs":    "/api/v1/docs",
+			"status":  "operational",
 		})
 	})
+
+	// Auth routes (public)
+	authGroup := api.Group("/auth")
+	authGroup.Post("/request-otp", auth.RateLimitMiddleware(3), authHandler.RequestOTP)
+	authGroup.Post("/verify-otp", auth.RateLimitMiddleware(5), authHandler.VerifyOTP)
+	authGroup.Post("/refresh", authHandler.RefreshToken)
+
+	// Protected routes
+	protected := api.Group("/", auth.AuthMiddleware(jwtService))
+	protected.Post("/auth/logout", authHandler.Logout)
+
+	// User routes (to be implemented)
+	userGroup := protected.Group("/users")
+	userGroup.Get("/me", func(c *fiber.Ctx) error {
+		userID := c.Locals("userID").(string)
+		return c.JSON(fiber.Map{
+			"user_id": userID,
+			"message": "User profile endpoint - to be implemented",
+		})
+	})
+
+	// Log MinIO client usage (temporary)
+	_ = minioClient
 
 	// Start server with graceful shutdown
 	go func() {
 		addr := fmt.Sprintf(":%s", cfg.App.Port)
 		log.Printf("Server starting on %s", addr)
+		log.Printf("Environment: %s", cfg.App.Env)
+		log.Printf("Debug mode: %v", cfg.App.Debug)
+
 		if err := app.Listen(addr); err != nil {
 			log.Fatal("Server failed to start:", err)
 		}
@@ -140,6 +200,11 @@ func customErrorHandler(c *fiber.Ctx, err error) error {
 	if e, ok := err.(*fiber.Error); ok {
 		code = e.Code
 		message = e.Message
+	}
+
+	// Log errors in development
+	if os.Getenv("APP_ENV") != "production" {
+		log.Printf("Error: %v", err)
 	}
 
 	return c.Status(code).JSON(fiber.Map{
