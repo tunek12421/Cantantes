@@ -34,6 +34,11 @@ type Client struct {
 }
 
 func NewClient(hub *Hub, conn *websocket.Conn, userID, deviceID string) *Client {
+	if conn == nil {
+		log.Printf("[ERROR] NewClient called with nil connection for UserID=%s", userID)
+		return nil
+	}
+	
 	return &Client{
 		ID:         uuid.New().String(),
 		UserID:     userID,
@@ -46,10 +51,21 @@ func NewClient(hub *Hub, conn *websocket.Conn, userID, deviceID string) *Client 
 }
 
 func (c *Client) Start() {
-	log.Printf("[DEBUG] Client.Start() called for UserID=%s, DeviceID=%s", c.UserID, c.DeviceID)
+	if c == nil || c.conn == nil {
+		log.Printf("[ERROR] Client.Start() called with nil client or connection")
+		return
+	}
+	
+	log.Printf("[DEBUG] Client.Start() called for UserID=%s, DeviceID=%s, conn=%p", c.UserID, c.DeviceID, c.conn)
+	
 	c.hub.register <- c
+	log.Printf("[DEBUG] Client sent to hub.register channel")
+	
 	go c.writePump()
+	log.Printf("[DEBUG] writePump goroutine started")
+	
 	go c.readPump()
+	log.Printf("[DEBUG] readPump goroutine started")
 }
 
 func (c *Client) readPump() {
@@ -272,4 +288,117 @@ func (c *Client) GetLastActive() time.Time {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.lastActive
+}
+// Agregar estos métodos alternativos a client.go
+
+func (c *Client) readPumpWithConn(conn *websocket.Conn) {
+	log.Printf("[DEBUG] readPumpWithConn started for UserID=%s, conn=%p", c.UserID, conn)
+	
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[PANIC] readPumpWithConn panic for UserID=%s: %v", c.UserID, r)
+		}
+		log.Printf("[DEBUG] readPumpWithConn ending for UserID=%s", c.UserID)
+		conn.Close()
+	}()
+
+	// Configure WebSocket
+	conn.SetReadLimit(maxMessageSize)
+	if err := conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+		log.Printf("[ERROR] Failed to set read deadline: %v (conn=%p)", err, conn)
+		return
+	}
+	
+	conn.SetPongHandler(func(string) error {
+		log.Printf("[DEBUG] Pong received from UserID=%s", c.UserID)
+		if err := conn.SetReadDeadline(time.Now().Add(pongWait)); err != nil {
+			log.Printf("[ERROR] Failed to update read deadline: %v", err)
+			return err
+		}
+		c.updateLastActive()
+		return nil
+	})
+
+	log.Printf("[DEBUG] WebSocket configured, entering read loop for UserID=%s", c.UserID)
+
+	for {
+		messageType, message, err := conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("[ERROR] WebSocket error for user %s: %v", c.UserID, err)
+			} else {
+				log.Printf("[DEBUG] WebSocket closed for user %s: %v", c.UserID, err)
+			}
+			break
+		}
+
+		log.Printf("[DEBUG] Message received from UserID=%s, type=%d, size=%d", c.UserID, messageType, len(message))
+
+		if messageType != websocket.TextMessage {
+			log.Printf("[DEBUG] Ignoring non-text message type %d", messageType)
+			continue
+		}
+
+		c.updateLastActive()
+
+		clientMsg, err := ParseMessage(message)
+		if err != nil {
+			log.Printf("[ERROR] Failed to parse message from user %s: %v", c.UserID, err)
+			select {
+			case c.send <- NewErrorMessage("PARSE_ERROR", "Invalid message format"):
+			default:
+				log.Printf("[WARN] Send buffer full for user %s", c.UserID)
+			}
+			continue
+		}
+
+		c.processMessage(clientMsg)
+	}
+}
+
+func (c *Client) writePumpWithConn(conn *websocket.Conn) {
+	log.Printf("[DEBUG] writePumpWithConn started for UserID=%s, conn=%p", c.UserID, conn)
+	ticker := time.NewTicker(pingPeriod)
+	
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[PANIC] writePumpWithConn panic for UserID=%s: %v", c.UserID, r)
+		}
+		log.Printf("[DEBUG] writePumpWithConn ending for UserID=%s", c.UserID)
+		ticker.Stop()
+		conn.Close()
+	}()
+
+	for {
+		select {
+		case message, ok := <-c.send:
+			if err := conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				log.Printf("[ERROR] Failed to set write deadline: %v", err)
+				return
+			}
+			
+			if !ok {
+				log.Printf("[DEBUG] Send channel closed for UserID=%s", c.UserID)
+				conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+
+			log.Printf("[DEBUG] Sending message to UserID=%s, size=%d", c.UserID, len(message))
+			if err := conn.WriteMessage(websocket.TextMessage, message); err != nil {
+				log.Printf("[ERROR] Failed to write message: %v", err)
+				return
+			}
+
+		case <-ticker.C:
+			log.Printf("[DEBUG] Sending ping to UserID=%s", c.UserID)
+			if err := conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				log.Printf("[ERROR] Failed to set write deadline for ping: %v", err)
+				return
+			}
+			if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				log.Printf("[ERROR] Failed to send ping: %v", err)
+				return
+			}
+		}
+	}
 }

@@ -75,84 +75,43 @@ func (h *Handler) UpgradeHandler() fiber.Handler {
 
 func (h *Handler) WebSocketHandler() fiber.Handler {
 	return websocket.New(func(c *websocket.Conn) {
-		log.Printf("[DEBUG] WebSocketHandler started")
-		defer log.Printf("[DEBUG] WebSocketHandler ended")
+		log.Printf("[DEBUG] WebSocketHandler called, conn=%p", c)
+		
+		if c == nil {
+			log.Println("[ERROR] WebSocket handler received nil connection")
+			return
+		}
 		
 		userID, ok := c.Locals("userID").(string)
 		if !ok || userID == "" {
 			log.Println("[ERROR] WebSocket: missing userID")
+			c.WriteMessage(websocket.CloseMessage, []byte("Missing authentication"))
+			c.Close()
 			return
 		}
 
 		deviceID, ok := c.Locals("deviceID").(string)
 		if !ok || deviceID == "" {
 			log.Println("[ERROR] WebSocket: missing deviceID")
+			c.WriteMessage(websocket.CloseMessage, []byte("Missing device ID"))
+			c.Close()
 			return
 		}
 
-		log.Printf("[DEBUG] Creating client for UserID=%s, DeviceID=%s", userID, deviceID)
-		
-		// Send initial welcome message
-		welcome := map[string]interface{}{
-			"type": "connected",
-			"message": "WebSocket connection established",
-			"timestamp": time.Now().Unix(),
-		}
-		if data, err := json.Marshal(welcome); err == nil {
-			c.WriteMessage(websocket.TextMessage, data)
+		client := NewClient(h.hub, c, userID, deviceID)
+		if client == nil {
+			log.Printf("[ERROR] Failed to create client for UserID=%s", userID)
+			c.Close()
+			return
 		}
 		
-		// Create done channel
-		done := make(chan bool)
+		log.Printf("[DEBUG] New WebSocket connection: UserID=%s, DeviceID=%s, ClientID=%s, conn=%p",
+			userID, deviceID, client.ID, c)
+
+		client.Start()
 		
-		// Start a simple goroutine for reading
-		go func() {
-			defer close(done)
-			
-			for {
-				messageType, p, err := c.ReadMessage()
-				if err != nil {
-					log.Printf("[DEBUG] Read error: %v", err)
-					return
-				}
-				
-				if messageType == websocket.TextMessage {
-					log.Printf("[DEBUG] Received: %s", string(p))
-					
-					// Parse message
-					var msg map[string]interface{}
-					if err := json.Unmarshal(p, &msg); err == nil {
-						msgType, _ := msg["type"].(string)
-						
-						switch msgType {
-						case "ping":
-							pong := map[string]interface{}{
-								"type": "pong",
-								"timestamp": time.Now().Unix(),
-							}
-							if data, err := json.Marshal(pong); err == nil {
-								c.WriteMessage(websocket.TextMessage, data)
-							}
-						default:
-							// Echo for now
-							response := map[string]interface{}{
-								"type": "echo",
-								"original": msg,
-								"timestamp": time.Now().Unix(),
-							}
-							if data, err := json.Marshal(response); err == nil {
-								c.WriteMessage(websocket.TextMessage, data)
-							}
-						}
-					}
-				}
-			}
-		}()
-		
-		// Wait for connection to close
-		<-done
-		log.Printf("[DEBUG] Connection closed for UserID=%s", userID)
-		
+		// Block until connection closes
+		select {}
 	}, websocket.Config{
 		ReadBufferSize:    4096,
 		WriteBufferSize:   4096,
@@ -228,4 +187,10 @@ func CreateRelayService(redisClient *redis.Client, jwtService *auth.JWTService) 
 	}()
 
 	return handler, hub
+}
+
+// HandleWebSocket handles a new WebSocket connection
+func (h *Handler) HandleWebSocket(conn *websocket.Conn, userID, deviceID string) {
+	client := NewClient(h.hub, conn, userID, deviceID)
+	client.Start()
 }

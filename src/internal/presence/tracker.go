@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -14,12 +15,27 @@ type Tracker struct {
 }
 
 func NewTracker(redisClient *redis.Client) *Tracker {
+	// Verificar que Redis funciona al crear el tracker
+	ctx := context.Background()
+	if err := redisClient.Ping(ctx).Err(); err != nil {
+		log.Printf("[ERROR] Redis not working in presence tracker: %v", err)
+	} else {
+		log.Printf("[DEBUG] Redis connection OK in presence tracker")
+	}
+	
 	return &Tracker{
 		redis: redisClient,
 	}
 }
 
 func (t *Tracker) SetUserOnline(ctx context.Context, userID, deviceID string) error {
+	log.Printf("[DEBUG] SetUserOnline called for userID=%s, deviceID=%s", userID, deviceID)
+	
+	if t.redis == nil {
+		log.Printf("[ERROR] Redis client is nil!")
+		return fmt.Errorf("redis client is nil")
+	}
+	
 	pipe := t.redis.Pipeline()
 
 	userKey := fmt.Sprintf("presence:user:%s", userID)
@@ -36,10 +52,23 @@ func (t *Tracker) SetUserOnline(ctx context.Context, userID, deviceID string) er
 	pipe.SAdd(ctx, "presence:online_users", userID)
 
 	_, err := pipe.Exec(ctx)
-	return err
+	if err != nil {
+		log.Printf("[ERROR] Failed to set user online: %v", err)
+		return err
+	}
+	
+	log.Printf("[DEBUG] User %s set online successfully", userID)
+	return nil
 }
 
 func (t *Tracker) SetUserOffline(ctx context.Context, userID string) error {
+	log.Printf("[DEBUG] SetUserOffline called for userID=%s", userID)
+	
+	if t.redis == nil {
+		log.Printf("[ERROR] Redis client is nil!")
+		return fmt.Errorf("redis client is nil")
+	}
+	
 	pipe := t.redis.Pipeline()
 
 	userKey := fmt.Sprintf("presence:user:%s", userID)
@@ -54,9 +83,14 @@ func (t *Tracker) SetUserOffline(ctx context.Context, userID string) error {
 	pipe.Del(ctx, deviceKey)
 
 	_, err := pipe.Exec(ctx)
-	return err
+	if err != nil {
+		log.Printf("[ERROR] Failed to set user offline: %v", err)
+		return err
+	}
+	
+	log.Printf("[DEBUG] User %s set offline successfully", userID)
+	return nil
 }
-
 func (t *Tracker) IsUserOnline(ctx context.Context, userID string) (bool, error) {
 	return t.redis.SIsMember(ctx, "presence:online_users", userID).Result()
 }

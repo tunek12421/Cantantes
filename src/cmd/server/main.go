@@ -231,6 +231,27 @@ func main() {
 		log.Printf("WebSocket stats: http://localhost%s/api/v1/ws/stats", addr)
 		log.Printf("========================")
 
+	// Test WebSocket endpoint
+	app.Get("/test-ws", websocket.New(func(c *websocket.Conn) {
+		log.Println("[TEST-WS] Handler started")
+		defer log.Println("[TEST-WS] Handler ended")
+		
+		// Send welcome message
+		c.WriteMessage(websocket.TextMessage, []byte("Welcome to test WebSocket!"))
+		
+		// Simple echo loop
+		for {
+			mt, msg, err := c.ReadMessage()
+			if err != nil {
+				log.Printf("[TEST-WS] Error: %v", err)
+				break
+			}
+			log.Printf("[TEST-WS] Received: %s", string(msg))
+			c.WriteMessage(mt, append([]byte("Echo: "), msg...))
+		}
+	}))
+	log.Println("✅ Test WebSocket endpoint registered at /test-ws")
+
 		if err := app.Listen(addr); err != nil {
 			log.Fatal("Server failed to start:", err)
 		}

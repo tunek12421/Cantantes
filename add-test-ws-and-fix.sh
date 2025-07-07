@@ -1,3 +1,38 @@
+#!/bin/bash
+
+echo "🔧 Agregando endpoint de test y arreglando el handler principal"
+
+# 1. Primero, agregar el endpoint de test en main.go
+echo -e "\n1. Agregando endpoint de test WebSocket en main.go..."
+
+# Buscar dónde agregar el endpoint (justo antes de app.Listen)
+sed -i '/app.Listen(addr)/i\
+	// Test WebSocket endpoint\
+	app.Get("/test-ws", websocket.New(func(c *websocket.Conn) {\
+		log.Println("[TEST-WS] Handler started")\
+		defer log.Println("[TEST-WS] Handler ended")\
+		\
+		// Send welcome message\
+		c.WriteMessage(websocket.TextMessage, []byte("Welcome to test WebSocket!"))\
+		\
+		// Simple echo loop\
+		for {\
+			mt, msg, err := c.ReadMessage()\
+			if err != nil {\
+				log.Printf("[TEST-WS] Error: %v", err)\
+				break\
+			}\
+			log.Printf("[TEST-WS] Received: %s", string(msg))\
+			c.WriteMessage(mt, append([]byte("Echo: "), msg...))\
+		}\
+	}))\
+	log.Println("✅ Test WebSocket endpoint registered at /test-ws")\
+' src/cmd/server/main.go
+
+# 2. Ahora, vamos a reescribir el WebSocketHandler principal de manera más simple
+echo -e "\n2. Reescribiendo el WebSocketHandler principal..."
+
+cat > /tmp/new_websocket_handler.go << 'ENDOFFILE'
 package relay
 
 import (
@@ -229,3 +264,34 @@ func CreateRelayService(redisClient *redis.Client, jwtService *auth.JWTService) 
 
 	return handler, hub
 }
+ENDOFFILE
+
+# 3. Reemplazar todo el archivo websocket.go
+echo -e "\n3. Reemplazando websocket.go con versión simplificada..."
+cp src/internal/relay/websocket.go src/internal/relay/websocket.go.bak2
+cp /tmp/new_websocket_handler.go src/internal/relay/websocket.go
+
+# 4. Rebuild
+echo -e "\n4. Rebuilding backend..."
+cd docker
+docker-compose build backend
+if [ $? -ne 0 ]; then
+    echo "❌ Error al compilar"
+    exit 1
+fi
+docker-compose restart backend
+cd ..
+
+echo -e "\n5. Esperando que inicie..."
+sleep 5
+
+echo -e "\n✅ Listo para probar!"
+echo ""
+echo "PRUEBA 1 - Test endpoint simple (sin autenticación):"
+echo "wscat -c 'ws://localhost:8080/test-ws'"
+echo ""
+echo "PRUEBA 2 - Endpoint principal con autenticación:"
+echo "source /tmp/chat-e2ee-tokens.txt && wscat -c \"ws://localhost:8080/ws?token=\$ACCESS_TOKEN\""
+echo ""
+echo "Ver logs en otra terminal:"
+echo "./scripts/logs.sh backend -f | grep -E '(TEST-WS|DEBUG|WebSocket)'"
