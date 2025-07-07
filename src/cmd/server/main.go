@@ -81,9 +81,13 @@ func main() {
 	// Initialize handlers
 	authHandler := auth.NewAuthHandler(db, jwtService, smsService, sessionStore)
 
-	// Initialize WebSocket relay service - THIS IS IMPORTANT!
+	// Initialize WebSocket relay service - CRITICAL!
+	log.Println("Initializing WebSocket relay service...")
 	relayHandler, hub := relay.CreateRelayService(redis, jwtService)
-	log.Printf("DEBUG: relayHandler is nil: %v, hub is nil: %v", relayHandler == nil, hub == nil)
+	if relayHandler == nil || hub == nil {
+		log.Fatal("Failed to initialize WebSocket relay service")
+	}
+	log.Printf("WebSocket relay service initialized: handler=%v, hub=%v", relayHandler != nil, hub != nil)
 
 	// Create Fiber app
 	app := fiber.New(fiber.Config{
@@ -180,18 +184,38 @@ func main() {
 		})
 	})
 
-	log.Println("DEBUG: Adding WebSocket routes...")
+	// ===== WEBSOCKET ROUTES - PHASE 3 CRITICAL SECTION =====
+	log.Println("Registering WebSocket routes...")
+	
 	// WebSocket stats endpoint (protected)
 	protected.Get("/ws/stats", relayHandler.GetStats())
+	log.Println("✅ Registered /api/v1/ws/stats")
 
-	// Debug endpoint to verify routes are being added
-	app.Get("/debug/test", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"message": "Debug endpoint working"})
-	})
-	// WebSocket route - VERY IMPORTANT SECTION!
+	// WebSocket route - MUST BE BEFORE app.Listen()!
 	app.Use("/ws", relayHandler.UpgradeHandler())
 	app.Get("/ws", relayHandler.WebSocketHandler())
-	log.Println("DEBUG: WebSocket routes added")
+	log.Println("✅ Registered /ws WebSocket endpoint")
+	
+	// Debug endpoint to verify routes work
+	app.Get("/debug/phase3", func(c *fiber.Ctx) error {
+		return c.JSON(fiber.Map{
+			"message": "Phase 3 WebSocket integration is working!",
+			"websocket_endpoint": "/ws",
+			"stats_endpoint": "/api/v1/ws/stats",
+			"hub_active": hub != nil,
+		})
+	})
+	log.Println("✅ Registered /debug/phase3")
+	// ===== END WEBSOCKET ROUTES =====
+
+	// Log all registered routes (debug)
+	routes := app.GetRoutes()
+	log.Printf("Total routes registered: %d", len(routes))
+	for _, route := range routes {
+		if route.Path == "/ws" || route.Path == "/api/v1/ws/stats" || route.Path == "/debug/phase3" {
+			log.Printf("  ✅ %s %s", route.Method, route.Path)
+		}
+	}
 
 	// Log MinIO client usage (temporary)
 	_ = minioClient
@@ -199,10 +223,13 @@ func main() {
 	// Start server with graceful shutdown
 	go func() {
 		addr := fmt.Sprintf(":%s", cfg.App.Port)
+		log.Printf("=== PHASE 3 COMPLETE ===")
 		log.Printf("Server starting on %s", addr)
 		log.Printf("Environment: %s", cfg.App.Env)
 		log.Printf("Debug mode: %v", cfg.App.Debug)
-		log.Printf("WebSocket endpoint available at: ws://localhost%s/ws", addr)
+		log.Printf("WebSocket endpoint: ws://localhost%s/ws", addr)
+		log.Printf("WebSocket stats: http://localhost%s/api/v1/ws/stats", addr)
+		log.Printf("========================")
 
 		if err := app.Listen(addr); err != nil {
 			log.Fatal("Server failed to start:", err)
