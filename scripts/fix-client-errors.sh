@@ -1,3 +1,20 @@
+#!/bin/bash
+
+# Fix the specific compilation errors in client.go
+
+echo "🔧 Fixing client.go compilation errors..."
+
+# Let's check what's at lines 174 and 190
+echo "Current content around line 174:"
+sed -n '170,180p' src/internal/relay/client.go
+
+echo -e "\nCurrent content around line 190:"
+sed -n '185,195p' src/internal/relay/client.go
+
+# Now let's fix the handleTypingIndicator and handleReadReceipt functions
+# We need to find these functions and fix them properly
+
+cat > src/internal/relay/client_fix.go << 'ENDOFFILE'
 package relay
 
 import (
@@ -245,3 +262,27 @@ func (c *Client) GetLastActive() time.Time {
 	defer c.mu.RUnlock()
 	return c.lastActive
 }
+ENDOFFILE
+
+# Replace the original client.go with the fixed version
+mv src/internal/relay/client_fix.go src/internal/relay/client.go
+
+echo "✅ client.go fixed!"
+
+# Also ensure the HandleWebSocket method exists in websocket.go
+if ! grep -q "HandleWebSocket" src/internal/relay/websocket.go; then
+    echo "Adding HandleWebSocket method..."
+    cat >> src/internal/relay/websocket.go << 'ENDOFFILE'
+
+// HandleWebSocket handles a new WebSocket connection
+func (h *Handler) HandleWebSocket(conn *websocket.Conn, userID, deviceID string) {
+	client := NewClient(h.hub, conn, userID, deviceID)
+	client.Start()
+}
+ENDOFFILE
+fi
+
+echo "✅ All client.go errors should be fixed now!"
+echo ""
+echo "Rebuild and test:"
+echo "cd docker && docker-compose build backend && docker-compose restart backend"

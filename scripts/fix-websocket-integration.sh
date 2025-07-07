@@ -1,3 +1,11 @@
+#!/bin/bash
+
+# Script to complete Phase 3 WebSocket integration for Chat E2EE
+
+echo "Fixing WebSocket integration..."
+
+# Update main.go to include WebSocket routes
+cat > src/cmd/server/main.go << 'ENDOFFILE'
 package main
 
 import (
@@ -17,6 +25,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/gofiber/websocket/v2"
 	"github.com/joho/godotenv"
 )
 
@@ -81,9 +90,8 @@ func main() {
 	// Initialize handlers
 	authHandler := auth.NewAuthHandler(db, jwtService, smsService, sessionStore)
 
-	// Initialize WebSocket relay service - THIS IS IMPORTANT!
+	// Initialize WebSocket relay service
 	relayHandler, hub := relay.CreateRelayService(redis, jwtService)
-	log.Printf("DEBUG: relayHandler is nil: %v, hub is nil: %v", relayHandler == nil, hub == nil)
 
 	// Create Fiber app
 	app := fiber.New(fiber.Config{
@@ -125,8 +133,6 @@ func main() {
 			})
 		}
 
-		hubStats := hub.GetStats()
-
 		return c.JSON(fiber.Map{
 			"status":  "healthy",
 			"version": cfg.App.Version,
@@ -136,8 +142,8 @@ func main() {
 				"redis":    "connected",
 				"minio":    "connected",
 				"websocket": fiber.Map{
-					"hub_active": true,
-					"stats": hubStats,
+					"hub_active": hub != nil,
+					"stats": hub.GetStats(),
 				},
 			},
 		})
@@ -180,18 +186,12 @@ func main() {
 		})
 	})
 
-	log.Println("DEBUG: Adding WebSocket routes...")
-	// WebSocket stats endpoint (protected)
+	// WebSocket stats endpoint
 	protected.Get("/ws/stats", relayHandler.GetStats())
 
-	// Debug endpoint to verify routes are being added
-	app.Get("/debug/test", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"message": "Debug endpoint working"})
-	})
-	// WebSocket route - VERY IMPORTANT SECTION!
+	// WebSocket route with authentication check
 	app.Use("/ws", relayHandler.UpgradeHandler())
-	app.Get("/ws", relayHandler.WebSocketHandler())
-	log.Println("DEBUG: WebSocket routes added")
+	app.Get("/ws", websocket.New(relayHandler.WebSocketHandler()))
 
 	// Log MinIO client usage (temporary)
 	_ = minioClient
@@ -202,7 +202,7 @@ func main() {
 		log.Printf("Server starting on %s", addr)
 		log.Printf("Environment: %s", cfg.App.Env)
 		log.Printf("Debug mode: %v", cfg.App.Debug)
-		log.Printf("WebSocket endpoint available at: ws://localhost%s/ws", addr)
+		log.Printf("WebSocket endpoint: ws://localhost%s/ws", addr)
 
 		if err := app.Listen(addr); err != nil {
 			log.Fatal("Server failed to start:", err)
@@ -242,3 +242,42 @@ func customErrorHandler(c *fiber.Ctx, err error) error {
 		"code":  code,
 	})
 }
+ENDOFFILE
+
+# Fix the WebSocket handler to properly implement fiber.Handler
+echo "Fixing WebSocket handler implementation..."
+cat > src/internal/relay/websocket_fix.go << 'ENDOFFILE'
+package relay
+
+import (
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/websocket/v2"
+)
+
+// WebSocketHandler returns the actual WebSocket handler function
+func (h *Handler) WebSocketHandler() func(*websocket.Conn) {
+	return func(c *websocket.Conn) {
+		userID, ok := c.Locals("userID").(string)
+		if !ok || userID == "" {
+			c.Close()
+			return
+		}
+
+		deviceID, ok := c.Locals("deviceID").(string)
+		if !ok || deviceID == "" {
+			c.Close()
+			return
+		}
+
+		client := NewClient(h.hub, c, userID, deviceID)
+		client.Start()
+	}
+}
+ENDOFFILE
+
+echo "✅ WebSocket integration fixed!"
+echo ""
+echo "Next steps:"
+echo "1. Rebuild backend: cd docker && docker-compose build backend"
+echo "2. Restart backend: docker-compose restart backend"
+echo "3. Test WebSocket again: ./scripts/test-websocket.sh"

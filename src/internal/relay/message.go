@@ -3,6 +3,7 @@ package relay
 import (
 	"encoding/json"
 	"time"
+	"math/rand"
 )
 
 // MessageType defines the type of WebSocket message
@@ -108,12 +109,17 @@ func NewServerMessage(msgType MessageType, from string, payload string) *ServerM
 
 // NewErrorMessage creates an error message
 func NewErrorMessage(code, message string) []byte {
+	errMsg := ErrorMessage{Code: code, Message: message}
+	payload, _ := json.Marshal(errMsg)
+	
 	msg := ServerMessage{
 		Type:      MessageTypeError,
 		Timestamp: time.Now().UTC(),
-		Payload:   mustMarshal(ErrorMessage{Code: code, Message: message}),
+		Payload:   string(payload),
 	}
-	return mustMarshal(msg)
+	
+	data, _ := json.Marshal(msg)
+	return data
 }
 
 // Helper functions
@@ -132,7 +138,7 @@ func randomString(n int) string {
 	const letters = "abcdefghijklmnopqrstuvwxyz0123456789"
 	b := make([]byte, n)
 	for i := range b {
-		b[i] = letters[time.Now().UnixNano()%int64(len(letters))]
+		b[i] = letters[rand.Intn(len(letters))]
 	}
 	return string(b)
 }

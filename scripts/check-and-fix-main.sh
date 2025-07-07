@@ -1,3 +1,17 @@
+#!/bin/bash
+
+# Check and fix main.go to ensure WebSocket routes are properly configured
+
+echo "🔍 Checking current main.go content..."
+
+# First, let's see if the WebSocket routes are actually in main.go
+echo "Checking for WebSocket routes in main.go..."
+grep -n "ws" src/cmd/server/main.go | head -20
+
+echo -e "\n🔧 Fixing main.go to properly include WebSocket routes..."
+
+# Let's create a complete working version of main.go
+cat > src/cmd/server/main.go << 'ENDOFFILE'
 package main
 
 import (
@@ -83,7 +97,6 @@ func main() {
 
 	// Initialize WebSocket relay service - THIS IS IMPORTANT!
 	relayHandler, hub := relay.CreateRelayService(redis, jwtService)
-	log.Printf("DEBUG: relayHandler is nil: %v, hub is nil: %v", relayHandler == nil, hub == nil)
 
 	// Create Fiber app
 	app := fiber.New(fiber.Config{
@@ -180,18 +193,12 @@ func main() {
 		})
 	})
 
-	log.Println("DEBUG: Adding WebSocket routes...")
 	// WebSocket stats endpoint (protected)
 	protected.Get("/ws/stats", relayHandler.GetStats())
 
-	// Debug endpoint to verify routes are being added
-	app.Get("/debug/test", func(c *fiber.Ctx) error {
-		return c.JSON(fiber.Map{"message": "Debug endpoint working"})
-	})
 	// WebSocket route - VERY IMPORTANT SECTION!
 	app.Use("/ws", relayHandler.UpgradeHandler())
 	app.Get("/ws", relayHandler.WebSocketHandler())
-	log.Println("DEBUG: WebSocket routes added")
 
 	// Log MinIO client usage (temporary)
 	_ = minioClient
@@ -202,7 +209,7 @@ func main() {
 		log.Printf("Server starting on %s", addr)
 		log.Printf("Environment: %s", cfg.App.Env)
 		log.Printf("Debug mode: %v", cfg.App.Debug)
-		log.Printf("WebSocket endpoint available at: ws://localhost%s/ws", addr)
+		log.Printf("WebSocket endpoint: ws://localhost%s/ws", addr)
 
 		if err := app.Listen(addr); err != nil {
 			log.Fatal("Server failed to start:", err)
@@ -242,3 +249,19 @@ func customErrorHandler(c *fiber.Ctx, err error) error {
 		"code":  code,
 	})
 }
+ENDOFFILE
+
+echo "✅ main.go updated with WebSocket routes!"
+
+# Let's also check if we need the websocket import
+echo -e "\n🔍 Checking if WebSocketHandler needs websocket import..."
+grep -q "websocket.New" src/internal/relay/websocket.go && echo "✅ websocket.New is used in relay package"
+
+echo -e "\n✅ All fixes applied!"
+echo ""
+echo "Now rebuild and restart:"
+echo "cd docker && docker-compose build backend && docker-compose restart backend"
+echo ""
+echo "You should see:"
+echo "- 'WebSocket endpoint: ws://localhost:8080/ws' in the logs"
+echo "- Handlers count increased to 18+"

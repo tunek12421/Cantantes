@@ -170,7 +170,7 @@ func (h *Hub) deliverPendingMessages(client *Client) {
 	}
 
 	ctx := context.Background()
-	messages := h.presence.GetPendingMessages(ctx, client.UserID)
+	messages, _ := h.presence.GetPendingMessages(ctx, client.UserID)
 
 	for _, msgData := range messages {
 		var msg RelayMessage

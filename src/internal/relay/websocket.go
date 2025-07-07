@@ -171,3 +171,9 @@ func CreateRelayService(redisClient *redis.Client, jwtService *auth.JWTService) 
 
 	return handler, hub
 }
+
+// HandleWebSocket handles a new WebSocket connection
+func (h *Handler) HandleWebSocket(conn *websocket.Conn, userID, deviceID string) {
+	client := NewClient(h.hub, conn, userID, deviceID)
+	client.Start()
+}
