@@ -327,7 +327,7 @@ func (h *Handler) RemoveFromGallery(c *fiber.Ctx) error {
 // GetPresignedURL generates a temporary direct access URL
 func (h *Handler) GetPresignedURL(c *fiber.Ctx) error {
 	mediaID := c.Params("id")
-	userID := c.Locals("userID").(string)
+	// userID removed - not needed for this operation
 
 	// Get media info
 	var filename string

@@ -85,7 +85,7 @@ func main() {
 	authHandler := auth.NewAuthHandler(db, jwtService, smsService, sessionStore)
 
 	// Initialize media handler
-	mediaHandler := media.NewHandler(db, minioClient, cfg.MinIO.BucketMedia, cfg.MinIO.BucketThumb, cfg.MinIO.BucketTemp)
+	mediaHandler := media.NewHandler(db, minioClient, cfg.MinIO.BucketMedia, cfg.MinIO.BucketThumbs, cfg.MinIO.BucketTemp)
 
 	// Initialize gallery handler
 	galleryHandler := gallery.NewHandler(db)
@@ -229,7 +229,7 @@ func main() {
 	mediaGroup.Get("/thumbnail/:name", func(c *fiber.Ctx) error {
 		// Handle thumbnail retrieval
 		thumbName := c.Params("name")
-		thumbService := media.NewThumbnailService(minioClient, cfg.MinIO.BucketThumb, cfg.MinIO.BucketMedia)
+		thumbService := media.NewThumbnailService(minioClient, cfg.MinIO.BucketThumbs, cfg.MinIO.BucketMedia)
 
 		reader, contentType, err := thumbService.GetThumbnail(c.Context(), thumbName)
 		if err != nil {
