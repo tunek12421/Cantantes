@@ -1,0 +1,310 @@
+package relay
+
+import (
+	"context"
+	"encoding/json"
+	"log"
+	"strings"
+	"time"
+
+	"chat-e2ee/internal/auth"
+	"chat-e2ee/internal/presence"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/websocket/v2"
+	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
+)
+
+type Handler struct {
+	hub        *Hub
+	jwtService *auth.JWTService
+}
+
+func NewHandler(hub *Hub, jwtService *auth.JWTService) *Handler {
+	return &Handler{
+		hub:        hub,
+		jwtService: jwtService,
+	}
+}
+
+func (h *Handler) UpgradeHandler() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		log.Printf("[WebSocket] UpgradeHandler called")
+		
+		if websocket.IsWebSocketUpgrade(c) {
+			// Get token from query params or header
+			token := c.Query("token")
+			if token == "" {
+				authHeader := c.Get("Authorization")
+				if authHeader != "" {
+					parts := strings.Split(authHeader, " ")
+					if len(parts) == 2 && parts[0] == "Bearer" {
+						token = parts[1]
+					}
+				}
+			}
+
+			if token == "" {
+				log.Printf("[WebSocket] Missing authentication token")
+				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+					"error": "Missing authentication token",
+				})
+			}
+
+			// Validate token
+			claims, err := h.jwtService.ValidateToken(token)
+			if err != nil {
+				log.Printf("[WebSocket] Invalid token: %v", err)
+				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+					"error": "Invalid token",
+				})
+			}
+
+			if claims.Type != "access" {
+				log.Printf("[WebSocket] Invalid token type: %s", claims.Type)
+				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+					"error": "Invalid token type",
+				})
+			}
+
+			// Store in locals for the websocket handler
+			c.Locals("userID", claims.UserID)
+			c.Locals("deviceID", claims.DeviceID)
+
+			log.Printf("[WebSocket] Upgrade request authenticated - UserID: %s, DeviceID: %s", 
+				claims.UserID, claims.DeviceID)
+
+			return c.Next()
+		}
+
+		return fiber.ErrUpgradeRequired
+	}
+}
+
+func (h *Handler) WebSocketHandler() fiber.Handler {
+	return websocket.New(func(conn *websocket.Conn) {
+		log.Printf("[WebSocket] Handler started, conn=%p", conn)
+		
+		// Get user info from locals
+		userID, ok := conn.Locals("userID").(string)
+		if !ok {
+			log.Printf("[WebSocket] ERROR: No userID in locals")
+			return
+		}
+		
+		deviceID, ok := conn.Locals("deviceID").(string) 
+		if !ok {
+			log.Printf("[WebSocket] ERROR: No deviceID in locals")
+			return
+		}
+		
+		log.Printf("[WebSocket] Connection established - UserID: %s, DeviceID: %s", userID, deviceID)
+		
+		// Create client ID
+		clientID := uuid.New().String()
+		
+		// Register with hub
+		client := &Client{
+			ID:       clientID,
+			UserID:   userID,
+			DeviceID: deviceID,
+			hub:      h.hub,
+			send:     make(chan []byte, 256),
+		}
+		
+		log.Printf("[WebSocket] Registering client with hub...")
+		h.hub.register <- client
+		
+		// Send welcome message
+		welcome := map[string]interface{}{
+			"type": "connected",
+			"message": "Connected to Chat E2EE",
+			"timestamp": time.Now().Unix(),
+			"user_id": userID,
+			"device_id": deviceID,
+		}
+		
+		welcomeData, err := json.Marshal(welcome)
+		if err == nil {
+			log.Printf("[WebSocket] Sending welcome message...")
+			if err := conn.WriteMessage(websocket.TextMessage, welcomeData); err != nil {
+				log.Printf("[WebSocket] ERROR sending welcome: %v", err)
+			}
+		}
+		
+		// Create done channel
+		done := make(chan struct{})
+		
+		// Start write pump
+		go func() {
+			ticker := time.NewTicker(54 * time.Second)
+			defer func() {
+				ticker.Stop()
+				conn.Close()
+				close(done)
+			}()
+			
+			for {
+				select {
+				case message, ok := <-client.send:
+					conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+					
+					if !ok {
+						log.Printf("[WebSocket] Send channel closed")
+						conn.WriteMessage(websocket.CloseMessage, []byte{})
+						return
+					}
+					
+					log.Printf("[WebSocket] Sending message to client: %d bytes", len(message))
+					if err := conn.WriteMessage(websocket.TextMessage, message); err != nil {
+						log.Printf("[WebSocket] ERROR writing message: %v", err)
+						return
+					}
+					
+				case <-ticker.C:
+					conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+					if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+						log.Printf("[WebSocket] ERROR sending ping: %v", err)
+						return
+					}
+					log.Printf("[WebSocket] Ping sent")
+				}
+			}
+		}()
+		
+		// Read pump (blocking)
+		conn.SetReadLimit(512 * 1024)
+		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+		conn.SetPongHandler(func(string) error {
+			log.Printf("[WebSocket] Pong received")
+			conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+			return nil
+		})
+		
+		log.Printf("[WebSocket] Starting read loop...")
+		
+		for {
+			messageType, message, err := conn.ReadMessage()
+			if err != nil {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+					log.Printf("[WebSocket] Unexpected close error: %v", err)
+				} else {
+					log.Printf("[WebSocket] Connection closed: %v", err)
+				}
+				break
+			}
+			
+			if messageType == websocket.TextMessage {
+				log.Printf("[WebSocket] Received from %s: %s", userID, string(message))
+				
+				// Parse message
+				var msg ClientMessage
+				if err := json.Unmarshal(message, &msg); err != nil {
+					log.Printf("[WebSocket] Parse error: %v", err)
+					
+					// Send error response
+					errResp := map[string]interface{}{
+						"type": "error",
+						"error": "Invalid message format",
+					}
+					if data, err := json.Marshal(errResp); err == nil {
+						client.send <- data
+					}
+					continue
+				}
+				
+				// Handle different message types
+				switch msg.Type {
+				case "ping":
+					log.Printf("[WebSocket] Handling ping")
+					pong := map[string]interface{}{
+						"type": "pong",
+						"timestamp": time.Now().Unix(),
+					}
+					if data, err := json.Marshal(pong); err == nil {
+						client.send <- data
+					}
+					
+				case "message":
+					log.Printf("[WebSocket] Handling message to %s", msg.To)
+					// Relay message to recipient
+					if msg.To != "" {
+						relayMsg := &RelayMessage{
+							From:     userID,
+							To:       msg.To,
+							DeviceID: deviceID,
+							Type:     MessageTypeText,
+							Payload:  msg.Payload,
+						}
+						h.hub.relay <- relayMsg
+					}
+					
+				default:
+					log.Printf("[WebSocket] Unknown message type: %s", msg.Type)
+				}
+			}
+		}
+		
+		// Cleanup
+		log.Printf("[WebSocket] Cleaning up connection for %s", userID)
+		h.hub.unregister <- client
+		<-done
+		close(client.send)
+		
+		log.Printf("[WebSocket] Connection handler ended for %s", userID)
+	})
+}
+
+func (h *Handler) GetStats() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		stats := h.hub.GetStats()
+		
+		var onlineUsers []string
+		if h.hub.presence != nil {
+			ctx := c.Context()
+			onlineUsers, _ = h.hub.presence.GetOnlineUsers(ctx)
+		}
+
+		return c.JSON(fiber.Map{
+			"websocket": fiber.Map{
+				"total_connections":  stats.TotalConnections,
+				"active_connections": stats.ActiveConnections,
+				"messages_relayed":   stats.MessagesRelayed,
+				"last_activity":      stats.LastActivity,
+			},
+			"users": fiber.Map{
+				"online_count": len(onlineUsers),
+				"online_users": onlineUsers,
+			},
+		})
+	}
+}
+
+func CreateRelayService(redisClient *redis.Client, jwtService *auth.JWTService) (*Handler, *Hub) {
+	log.Printf("[WebSocket] Creating relay service...")
+	
+	presenceTracker := presence.NewTracker(redisClient)
+	hub := NewHub(presenceTracker)
+	
+	// Start hub
+	go hub.Run()
+	
+	handler := NewHandler(hub, jwtService)
+	
+	// Cleanup inactive users periodically
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+		
+		for range ticker.C {
+			ctx := context.Background()
+			if err := presenceTracker.CleanupInactive(ctx, 10*time.Minute); err != nil {
+				log.Printf("Presence cleanup error: %v", err)
+			}
+		}
+	}()
+	
+	log.Printf("[WebSocket] Relay service created successfully")
+	return handler, hub
+}

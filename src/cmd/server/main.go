@@ -17,6 +17,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/gofiber/websocket/v2"
 	"github.com/joho/godotenv"
 )
 
@@ -189,6 +190,22 @@ func main() {
 	
 	// WebSocket stats endpoint (protected)
 	protected.Get("/ws/stats", relayHandler.GetStats())
+
+	// Test WebSocket endpoint (sin autenticación)
+	app.Get("/test-ws", websocket.New(func(c *websocket.Conn) {
+		log.Println("[TEST-WS] New connection")
+		c.WriteMessage(websocket.TextMessage, []byte("Welcome to test WebSocket!"))
+		for {
+			mt, msg, err := c.ReadMessage()
+			if err != nil {
+				log.Printf("[TEST-WS] Error: %v", err)
+				break
+			}
+			log.Printf("[TEST-WS] Received: %s", string(msg))
+			c.WriteMessage(mt, append([]byte("Echo: "), msg...))
+		}
+	}))
+	log.Println("✅ Registered /test-ws endpoint")
 	log.Println("✅ Registered /api/v1/ws/stats")
 
 	// WebSocket route - MUST BE BEFORE app.Listen()!
@@ -231,26 +248,6 @@ func main() {
 		log.Printf("WebSocket stats: http://localhost%s/api/v1/ws/stats", addr)
 		log.Printf("========================")
 
-	// Test WebSocket endpoint
-	app.Get("/test-ws", websocket.New(func(c *websocket.Conn) {
-		log.Println("[TEST-WS] Handler started")
-		defer log.Println("[TEST-WS] Handler ended")
-		
-		// Send welcome message
-		c.WriteMessage(websocket.TextMessage, []byte("Welcome to test WebSocket!"))
-		
-		// Simple echo loop
-		for {
-			mt, msg, err := c.ReadMessage()
-			if err != nil {
-				log.Printf("[TEST-WS] Error: %v", err)
-				break
-			}
-			log.Printf("[TEST-WS] Received: %s", string(msg))
-			c.WriteMessage(mt, append([]byte("Echo: "), msg...))
-		}
-	}))
-	log.Println("✅ Test WebSocket endpoint registered at /test-ws")
 
 		if err := app.Listen(addr); err != nil {
 			log.Fatal("Server failed to start:", err)

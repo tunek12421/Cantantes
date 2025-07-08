@@ -274,28 +274,14 @@ func (c *Client) updateLastActive() {
 func (c *Client) Close() {
 	log.Printf("[DEBUG] Client.Close() called for UserID=%s", c.UserID)
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	
 	if c.isClosing {
-		log.Printf("[DEBUG] Client already closing for UserID=%s", c.UserID)
+		c.mu.Unlock()
 		return
 	}
 	c.isClosing = true
-	
-	// Solo cerrar el canal si no es nil
-	if c.send != nil {
-		// Verificar si el canal ya está cerrado antes de cerrarlo
-		select {
-		case _, ok := <-c.send:
-			if !ok {
-				log.Printf("[DEBUG] Channel already closed for UserID=%s", c.UserID)
-				return
-			}
-		default:
-			close(c.send)
-			log.Printf("[DEBUG] Channel closed for UserID=%s", c.UserID)
-		}
-	}
+	c.mu.Unlock()
+
+	close(c.send)
 }
 
 func (c *Client) GetLastActive() time.Time {

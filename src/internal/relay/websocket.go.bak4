@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"log"
 	"strings"
-	"sync"
 	"time"
 
 	"chat-e2ee/internal/auth"
@@ -13,29 +12,25 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/websocket/v2"
-	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
 type Handler struct {
 	hub        *Hub
 	jwtService *auth.JWTService
-	
-	connMu sync.RWMutex
-	conns  map[string]*websocket.Conn
 }
 
 func NewHandler(hub *Hub, jwtService *auth.JWTService) *Handler {
 	return &Handler{
 		hub:        hub,
 		jwtService: jwtService,
-		conns:      make(map[string]*websocket.Conn),
 	}
 }
 
 func (h *Handler) UpgradeHandler() fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		if websocket.IsWebSocketUpgrade(c) {
+			// Get token from query params or header
 			token := c.Query("token")
 			if token == "" {
 				authHeader := c.Get("Authorization")
@@ -53,6 +48,7 @@ func (h *Handler) UpgradeHandler() fiber.Handler {
 				})
 			}
 
+			// Validate token
 			claims, err := h.jwtService.ValidateToken(token)
 			if err != nil {
 				return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
@@ -66,10 +62,11 @@ func (h *Handler) UpgradeHandler() fiber.Handler {
 				})
 			}
 
+			// Store in locals for the websocket handler
 			c.Locals("userID", claims.UserID)
 			c.Locals("deviceID", claims.DeviceID)
 
-			log.Printf("[WebSocket] Upgrade request authenticated - UserID: %s, DeviceID: %s", 
+			log.Printf("[WebSocket] Upgrade request from UserID: %s, DeviceID: %s", 
 				claims.UserID, claims.DeviceID)
 
 			return c.Next()
@@ -80,89 +77,78 @@ func (h *Handler) UpgradeHandler() fiber.Handler {
 }
 
 func (h *Handler) WebSocketHandler() fiber.Handler {
-	return websocket.New(func(ws *websocket.Conn) {
-		userID := ws.Locals("userID").(string)
-		deviceID := ws.Locals("deviceID").(string)
-		connID := uuid.New().String()
+	return websocket.New(func(conn *websocket.Conn) {
+		// Get user info from locals
+		userID := conn.Locals("userID").(string)
+		deviceID := conn.Locals("deviceID").(string)
 		
-		log.Printf("[WebSocket] New connection: UserID=%s, DeviceID=%s, ConnID=%s", userID, deviceID, connID)
+		log.Printf("[WebSocket] New connection: UserID=%s, DeviceID=%s", userID, deviceID)
 		
-		// Store connection
-		h.connMu.Lock()
-		h.conns[connID] = ws
-		h.connMu.Unlock()
-		
-		// Create send channel
-		send := make(chan []byte, 256)
+		// Create a simple client representation
+		client := &SimpleClient{
+			UserID:   userID,
+			DeviceID: deviceID,
+			conn:     conn,
+			hub:      h.hub,
+			send:     make(chan []byte, 256),
+		}
 		
 		// Register with hub
-		if h.hub != nil {
-			client := &Client{
-				ID:         connID,
-				UserID:     userID,
-				DeviceID:   deviceID,
-				hub:        h.hub,
-				send:       send,
-				lastActive: time.Now(),
-			}
-			h.hub.register <- client
+		h.hub.register <- &Client{
+			ID:       deviceID,
+			UserID:   userID,
+			DeviceID: deviceID,
+			hub:      h.hub,
+			send:     client.send,
 		}
 		
 		// Send welcome message
 		welcome := map[string]interface{}{
 			"type": "connected",
-			"message": "Connected to Chat E2EE WebSocket",
+			"message": "Connected to Chat E2EE",
 			"timestamp": time.Now().Unix(),
-			"user_id": userID,
-			"device_id": deviceID,
 		}
-		
 		if data, err := json.Marshal(welcome); err == nil {
-			ws.WriteMessage(websocket.TextMessage, data)
+			conn.WriteMessage(websocket.TextMessage, data)
 		}
 		
-		// Start write pump
-		stopWrite := make(chan bool)
-		go h.writePump(ws, send, stopWrite)
+		// Start handling messages
+		go client.writePump()
+		client.readPump()
 		
-		// Read pump (blocking)
-		h.readPump(ws, userID, deviceID, send)
-		
-		// Cleanup
-		close(stopWrite)
-		close(send)
-		
-		h.connMu.Lock()
-		delete(h.conns, connID)
-		h.connMu.Unlock()
-		
-		// Unregister from hub
-		if h.hub != nil {
-			client := &Client{
-				ID:       connID,
-				UserID:   userID,
-				DeviceID: deviceID,
-				hub:      h.hub,
-			}
-			h.hub.unregister <- client
+		// Cleanup on disconnect
+		h.hub.unregister <- &Client{
+			ID:       deviceID,
+			UserID:   userID,
+			DeviceID: deviceID,
 		}
+		close(client.send)
 		
-		log.Printf("[WebSocket] Connection closed: UserID=%s, ConnID=%s", userID, connID)
+		log.Printf("[WebSocket] Connection closed: UserID=%s", userID)
 	})
 }
 
-func (h *Handler) readPump(ws *websocket.Conn, userID, deviceID string, send chan []byte) {
-	defer ws.Close()
+// SimpleClient handles WebSocket connection directly
+type SimpleClient struct {
+	UserID   string
+	DeviceID string
+	conn     *websocket.Conn
+	hub      *Hub
+	send     chan []byte
+}
+
+func (c *SimpleClient) readPump() {
+	defer c.conn.Close()
 	
-	ws.SetReadLimit(512 * 1024)
-	ws.SetReadDeadline(time.Now().Add(60 * time.Second))
-	ws.SetPongHandler(func(string) error {
-		ws.SetReadDeadline(time.Now().Add(60 * time.Second))
+	c.conn.SetReadLimit(512 * 1024)
+	c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	c.conn.SetPongHandler(func(string) error {
+		c.conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		return nil
 	})
 	
 	for {
-		messageType, message, err := ws.ReadMessage()
+		messageType, message, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				log.Printf("[WebSocket] Error: %v", err)
@@ -171,14 +157,16 @@ func (h *Handler) readPump(ws *websocket.Conn, userID, deviceID string, send cha
 		}
 		
 		if messageType == websocket.TextMessage {
-			log.Printf("[WebSocket] Received from %s: %s", userID, string(message))
+			log.Printf("[WebSocket] Received from %s: %s", c.UserID, string(message))
 			
+			// Parse message
 			var msg ClientMessage
 			if err := json.Unmarshal(message, &msg); err != nil {
 				log.Printf("[WebSocket] Parse error: %v", err)
 				continue
 			}
 			
+			// Handle different message types
 			switch msg.Type {
 			case "ping":
 				pong := map[string]interface{}{
@@ -186,24 +174,20 @@ func (h *Handler) readPump(ws *websocket.Conn, userID, deviceID string, send cha
 					"timestamp": time.Now().Unix(),
 				}
 				if data, err := json.Marshal(pong); err == nil {
-					select {
-					case send <- data:
-						log.Printf("[WebSocket] Pong queued")
-					default:
-						log.Printf("[WebSocket] Send buffer full")
-					}
+					c.send <- data
 				}
 				
 			case "message":
-				if msg.To != "" && h.hub != nil {
+				// Relay message to recipient
+				if msg.To != "" {
 					relayMsg := &RelayMessage{
-						From:     userID,
+						From:     c.UserID,
 						To:       msg.To,
-						DeviceID: deviceID,
+						DeviceID: c.DeviceID,
 						Type:     MessageTypeText,
 						Payload:  msg.Payload,
 					}
-					h.hub.relay <- relayMsg
+					c.hub.relay <- relayMsg
 				}
 				
 			default:
@@ -213,42 +197,38 @@ func (h *Handler) readPump(ws *websocket.Conn, userID, deviceID string, send cha
 	}
 }
 
-func (h *Handler) writePump(ws *websocket.Conn, send chan []byte, stop chan bool) {
+func (c *SimpleClient) writePump() {
 	ticker := time.NewTicker(54 * time.Second)
-	defer ticker.Stop()
+	defer func() {
+		ticker.Stop()
+		c.conn.Close()
+	}()
 	
 	for {
 		select {
-		case message, ok := <-send:
-			ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		case message, ok := <-c.send:
+			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 			
 			if !ok {
-				ws.WriteMessage(websocket.CloseMessage, []byte{})
+				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
 			
-			if err := ws.WriteMessage(websocket.TextMessage, message); err != nil {
+			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
 				return
 			}
 			
 		case <-ticker.C:
-			ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
-			if err := ws.WriteMessage(websocket.PingMessage, nil); err != nil {
+			c.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}
-			
-		case <-stop:
-			return
 		}
 	}
 }
 
 func (h *Handler) GetStats() fiber.Handler {
 	return func(c *fiber.Ctx) error {
-		h.connMu.RLock()
-		activeConns := len(h.conns)
-		h.connMu.RUnlock()
-		
 		stats := h.hub.GetStats()
 		
 		var onlineUsers []string
@@ -260,7 +240,7 @@ func (h *Handler) GetStats() fiber.Handler {
 		return c.JSON(fiber.Map{
 			"websocket": fiber.Map{
 				"total_connections":  stats.TotalConnections,
-				"active_connections": activeConns,
+				"active_connections": stats.ActiveConnections,
 				"messages_relayed":   stats.MessagesRelayed,
 				"last_activity":      stats.LastActivity,
 			},
@@ -273,15 +253,15 @@ func (h *Handler) GetStats() fiber.Handler {
 }
 
 func CreateRelayService(redisClient *redis.Client, jwtService *auth.JWTService) (*Handler, *Hub) {
-	log.Printf("[WebSocket] Creating relay service...")
-	
 	presenceTracker := presence.NewTracker(redisClient)
 	hub := NewHub(presenceTracker)
 	
+	// Start hub
 	go hub.Run()
 	
 	handler := NewHandler(hub, jwtService)
 	
+	// Cleanup inactive users periodically
 	go func() {
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
@@ -294,6 +274,5 @@ func CreateRelayService(redisClient *redis.Client, jwtService *auth.JWTService) 
 		}
 	}()
 	
-	log.Printf("[WebSocket] Relay service created successfully")
 	return handler, hub
 }
