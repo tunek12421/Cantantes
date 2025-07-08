@@ -1,0 +1,383 @@
+package media
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"strconv"
+	"time"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
+	"github.com/minio/minio-go/v7"
+)
+
+// Handler handles media-related HTTP requests
+type Handler struct {
+	service *Service
+	db      *sql.DB
+}
+
+// NewHandler creates a new media handler
+func NewHandler(db *sql.DB, minioClient *minio.Client, bucketMedia, bucketThumb, bucketTemp string) *Handler {
+	service := NewService(db, minioClient, bucketMedia, bucketThumb, bucketTemp)
+	return &Handler{
+		service: service,
+		db:      db,
+	}
+}
+
+// Upload handles file upload
+func (h *Handler) Upload(c *fiber.Ctx) error {
+	userID := c.Locals("userID").(string)
+
+	// Parse multipart form
+	form, err := c.MultipartForm()
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Failed to parse form",
+		})
+	}
+
+	// Get file from form
+	files := form.File["file"]
+	if len(files) == 0 {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "No file provided",
+		})
+	}
+
+	file := files[0]
+
+	// Validate file size
+	if file.Size > MaxFileSize {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error":    "File too large",
+			"max_size": MaxFileSize,
+		})
+	}
+
+	// Validate file type
+	if err := ValidateFileType(file.Filename, file.Header.Get("Content-Type")); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid file type",
+		})
+	}
+
+	// Open file
+	src, err := file.Open()
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to open file",
+		})
+	}
+	defer src.Close()
+
+	// Determine media type
+	mediaType := GetMediaType(file.Header.Get("Content-Type"))
+
+	// Upload file
+	media, err := h.service.UploadFile(c.Context(), src, file, userID, mediaType)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to upload file",
+		})
+	}
+
+	// Return response
+	return c.JSON(UploadResponse{
+		ID:   media.ID,
+		URL:  media.URL,
+		Type: media.Type,
+		Size: media.Size,
+	})
+}
+
+// GetFile handles file retrieval
+func (h *Handler) GetFile(c *fiber.Ctx) error {
+	mediaID := c.Params("id")
+	userID := c.Locals("userID").(string)
+
+	// Get file from service
+	media, reader, err := h.service.GetFile(c.Context(), mediaID, userID)
+	if err != nil {
+		if err == ErrMediaNotFound {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"error": "Media not found",
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to retrieve file",
+		})
+	}
+	defer reader.Close()
+
+	// Set headers
+	c.Set("Content-Type", media.MimeType)
+	c.Set("Content-Length", strconv.FormatInt(media.Size, 10))
+	c.Set("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", media.OriginalFilename))
+
+	// Stream file
+	return c.SendStream(reader)
+}
+
+// DeleteFile handles file deletion
+func (h *Handler) DeleteFile(c *fiber.Ctx) error {
+	mediaID := c.Params("id")
+	userID := c.Locals("userID").(string)
+
+	// Delete file
+	err := h.service.DeleteFile(c.Context(), mediaID, userID)
+	if err != nil {
+		if err == ErrMediaNotFound {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"error": "Media not found",
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to delete file",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "File deleted successfully",
+	})
+}
+
+// GetGallery returns the user's gallery
+func (h *Handler) GetGallery(c *fiber.Ctx) error {
+	userID := c.Locals("userID").(string)
+
+	// Parse query parameters
+	page := c.QueryInt("page", 1)
+	pageSize := c.QueryInt("page_size", DefaultPageSize)
+	mediaType := c.Query("type")
+
+	// Validate pagination
+	if page < 1 {
+		page = 1
+	}
+	if pageSize > MaxPageSize {
+		pageSize = MaxPageSize
+	}
+
+	offset := (page - 1) * pageSize
+
+	// Build query
+	query := `
+		SELECT gm.id, gm.type, gm.filename, gm.original_filename, 
+		       gm.mime_type, gm.size_bytes, gm.width, gm.height, 
+		       gm.duration_seconds, gm.thumbnail_url, gm.url, 
+		       gm.is_public, gm.created_at
+		FROM gallery_media gm
+		JOIN model_galleries g ON g.id = gm.gallery_id
+		WHERE g.model_id = $1`
+
+	args := []interface{}{userID}
+	argCount := 1
+
+	if mediaType != "" {
+		argCount++
+		query += fmt.Sprintf(" AND gm.type = $%d", argCount)
+		args = append(args, mediaType)
+	}
+
+	query += " ORDER BY gm.created_at DESC"
+	query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argCount+1, argCount+2)
+	args = append(args, pageSize, offset)
+
+	// Execute query
+	rows, err := h.db.QueryContext(c.Context(), query, args...)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to fetch gallery",
+		})
+	}
+	defer rows.Close()
+
+	// Parse results
+	items := make([]*MediaFile, 0)
+	for rows.Next() {
+		var media MediaFile
+		err := rows.Scan(
+			&media.ID, &media.Type, &media.Filename, &media.OriginalFilename,
+			&media.MimeType, &media.Size, &media.Width, &media.Height,
+			&media.Duration, &media.ThumbnailURL, &media.URL,
+			&media.IsPublic, &media.CreatedAt,
+		)
+		if err != nil {
+			continue
+		}
+		items = append(items, &media)
+	}
+
+	// Get total count
+	var totalCount int
+	countQuery := `
+		SELECT COUNT(*) 
+		FROM gallery_media gm
+		JOIN model_galleries g ON g.id = gm.gallery_id
+		WHERE g.model_id = $1`
+
+	if mediaType != "" {
+		countQuery += " AND gm.type = $2"
+		h.db.QueryRowContext(c.Context(), countQuery, userID, mediaType).Scan(&totalCount)
+	} else {
+		h.db.QueryRowContext(c.Context(), countQuery, userID).Scan(&totalCount)
+	}
+
+	// Return response
+	return c.JSON(GalleryListResponse{
+		Items:      items,
+		TotalCount: totalCount,
+		Page:       page,
+		PageSize:   pageSize,
+		HasMore:    totalCount > offset+pageSize,
+	})
+}
+
+// AddToGallery adds media to user's gallery
+func (h *Handler) AddToGallery(c *fiber.Ctx) error {
+	userID := c.Locals("userID").(string)
+
+	// Parse request
+	var req struct {
+		MediaID string `json:"media_id" validate:"required"`
+	}
+
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	// Get or create gallery
+	var galleryID string
+	err := h.db.QueryRowContext(c.Context(),
+		"SELECT id FROM model_galleries WHERE model_id = $1",
+		userID,
+	).Scan(&galleryID)
+
+	if err == sql.ErrNoRows {
+		// Create gallery
+		galleryID = uuid.New().String()
+		_, err = h.db.ExecContext(c.Context(),
+			"INSERT INTO model_galleries (id, model_id, created_at) VALUES ($1, $2, NOW())",
+			galleryID, userID,
+		)
+		if err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"error": "Failed to create gallery",
+			})
+		}
+	}
+
+	// Update media to add to gallery
+	_, err = h.db.ExecContext(c.Context(),
+		"UPDATE gallery_media SET gallery_id = $1 WHERE id = $2 AND gallery_id IS NULL",
+		galleryID, req.MediaID,
+	)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to add to gallery",
+		})
+	}
+
+	// Update gallery stats
+	h.updateGalleryStats(c.Context(), galleryID)
+
+	return c.JSON(fiber.Map{
+		"message": "Added to gallery successfully",
+	})
+}
+
+// RemoveFromGallery removes media from gallery
+func (h *Handler) RemoveFromGallery(c *fiber.Ctx) error {
+	userID := c.Locals("userID").(string)
+	mediaID := c.Params("id")
+
+	// Remove from gallery (set gallery_id to NULL)
+	result, err := h.db.ExecContext(c.Context(),
+		`UPDATE gallery_media 
+		 SET gallery_id = NULL 
+		 WHERE id = $1 AND gallery_id IN (
+			SELECT id FROM model_galleries WHERE model_id = $2
+		 )`,
+		mediaID, userID,
+	)
+
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to remove from gallery",
+		})
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error": "Media not found in gallery",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Removed from gallery successfully",
+	})
+}
+
+// GetPresignedURL generates a temporary direct access URL
+func (h *Handler) GetPresignedURL(c *fiber.Ctx) error {
+	mediaID := c.Params("id")
+	userID := c.Locals("userID").(string)
+
+	// Get media info
+	var filename string
+	err := h.db.QueryRowContext(c.Context(),
+		"SELECT filename FROM gallery_media WHERE id = $1",
+		mediaID,
+	).Scan(&filename)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"error": "Media not found",
+			})
+		}
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to get media info",
+		})
+	}
+
+	// Generate presigned URL (valid for 1 hour)
+	url, err := h.service.CreatePresignedURL(c.Context(), filename, time.Hour)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error": "Failed to generate URL",
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"url":        url,
+		"expires_in": 3600, // seconds
+	})
+}
+
+// Helper function to update gallery statistics
+func (h *Handler) updateGalleryStats(ctx context.Context, galleryID string) error {
+	query := `
+		UPDATE model_galleries 
+		SET total_size_bytes = (
+			SELECT COALESCE(SUM(size_bytes), 0) 
+			FROM gallery_media 
+			WHERE gallery_id = $1
+		),
+		media_count = (
+			SELECT COUNT(*) 
+			FROM gallery_media 
+			WHERE gallery_id = $1
+		),
+		updated_at = NOW()
+		WHERE id = $1`
+
+	_, err := h.db.ExecContext(ctx, query, galleryID)
+	return err
+}

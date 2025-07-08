@@ -11,6 +11,8 @@ import (
 	"chat-e2ee/internal/auth"
 	"chat-e2ee/internal/config"
 	"chat-e2ee/internal/database"
+	"chat-e2ee/internal/gallery"
+	"chat-e2ee/internal/media"
 	"chat-e2ee/internal/relay"
 
 	"github.com/gofiber/fiber/v2"
@@ -82,6 +84,12 @@ func main() {
 	// Initialize handlers
 	authHandler := auth.NewAuthHandler(db, jwtService, smsService, sessionStore)
 
+	// Initialize media handler
+	mediaHandler := media.NewHandler(db, minioClient, cfg.MinIO.BucketMedia, cfg.MinIO.BucketThumb, cfg.MinIO.BucketTemp)
+
+	// Initialize gallery handler
+	galleryHandler := gallery.NewHandler(db)
+
 	// Initialize WebSocket relay service - CRITICAL!
 	log.Println("Initializing WebSocket relay service...")
 	relayHandler, hub := relay.CreateRelayService(redis, jwtService)
@@ -98,6 +106,7 @@ func main() {
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
+		BodyLimit:    100 * 1024 * 1024, // 100MB for file uploads
 	})
 
 	// Middleware
@@ -142,7 +151,7 @@ func main() {
 				"minio":    "connected",
 				"websocket": fiber.Map{
 					"hub_active": true,
-					"stats": hubStats,
+					"stats":      hubStats,
 				},
 			},
 		})
@@ -158,9 +167,12 @@ func main() {
 			"docs":    "/api/v1/docs",
 			"status":  "operational",
 			"endpoints": fiber.Map{
-				"auth": "/api/v1/auth/*",
+				"auth":      "/api/v1/auth/*",
 				"websocket": "/ws",
-				"stats": "/api/v1/ws/stats",
+				"stats":     "/api/v1/ws/stats",
+				"media":     "/api/v1/media/*",
+				"gallery":   "/api/v1/gallery/*",
+				"models":    "/api/v1/models/*",
 			},
 		})
 	})
@@ -184,10 +196,103 @@ func main() {
 			"message": "User profile endpoint - to be implemented",
 		})
 	})
+	userGroup.Put("/me", func(c *fiber.Ctx) error {
+		// TODO: Implement user profile update
+		return c.JSON(fiber.Map{
+			"message": "Update profile - to be implemented",
+		})
+	})
+	userGroup.Post("/avatar", func(c *fiber.Ctx) error {
+		// TODO: Implement avatar upload
+		return c.JSON(fiber.Map{
+			"message": "Avatar upload - to be implemented",
+		})
+	})
+	userGroup.Get("/contacts", func(c *fiber.Ctx) error {
+		// TODO: Implement contacts listing
+		return c.JSON(fiber.Map{
+			"message": "Contacts listing - to be implemented",
+		})
+	})
+	userGroup.Post("/contacts", func(c *fiber.Ctx) error {
+		// TODO: Implement add contact
+		return c.JSON(fiber.Map{
+			"message": "Add contact - to be implemented",
+		})
+	})
+
+	// Media routes (protected)
+	mediaGroup := protected.Group("/media")
+	mediaGroup.Post("/upload", mediaHandler.Upload)
+	mediaGroup.Get("/:id", mediaHandler.GetFile)
+	mediaGroup.Delete("/:id", mediaHandler.DeleteFile)
+	mediaGroup.Get("/thumbnail/:name", func(c *fiber.Ctx) error {
+		// Handle thumbnail retrieval
+		thumbName := c.Params("name")
+		thumbService := media.NewThumbnailService(minioClient, cfg.MinIO.BucketThumb, cfg.MinIO.BucketMedia)
+
+		reader, contentType, err := thumbService.GetThumbnail(c.Context(), thumbName)
+		if err != nil {
+			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+				"error": "Thumbnail not found",
+			})
+		}
+		defer reader.Close()
+
+		c.Set("Content-Type", contentType)
+		return c.SendStream(reader)
+	})
+	mediaGroup.Get("/:id/url", mediaHandler.GetPresignedURL)
+
+	// Gallery routes (protected)
+	galleryGroup := protected.Group("/gallery")
+	galleryGroup.Get("/", galleryHandler.GetMyGallery)
+	galleryGroup.Post("/media", mediaHandler.AddToGallery)
+	galleryGroup.Delete("/media/:id", mediaHandler.RemoveFromGallery)
+	galleryGroup.Put("/settings", galleryHandler.UpdateGallerySettings)
+	galleryGroup.Get("/stats", galleryHandler.GetGalleryStats)
+
+	// Public gallery routes (with optional auth)
+	publicGallery := api.Group("/gallery", auth.OptionalAuthMiddleware(jwtService))
+	publicGallery.Get("/discover", galleryHandler.DiscoverGalleries)
+	publicGallery.Get("/:userId", galleryHandler.GetUserGallery)
+
+	// Models discovery routes (public with optional auth)
+	modelsGroup := api.Group("/models", auth.OptionalAuthMiddleware(jwtService))
+	modelsGroup.Get("/", func(c *fiber.Ctx) error {
+		// TODO: Implement models listing
+		page := c.QueryInt("page", 1)
+		pageSize := c.QueryInt("page_size", 20)
+
+		return c.JSON(fiber.Map{
+			"message":   "Models listing - to be implemented",
+			"page":      page,
+			"page_size": pageSize,
+			"models":    []interface{}{},
+			"has_more":  false,
+		})
+	})
+	modelsGroup.Get("/search", func(c *fiber.Ctx) error {
+		// TODO: Implement models search
+		query := c.Query("q")
+		return c.JSON(fiber.Map{
+			"message": "Models search - to be implemented",
+			"query":   query,
+			"results": []interface{}{},
+		})
+	})
+	modelsGroup.Get("/:id", func(c *fiber.Ctx) error {
+		// TODO: Implement model profile
+		modelID := c.Params("id")
+		return c.JSON(fiber.Map{
+			"message":  "Model profile - to be implemented",
+			"model_id": modelID,
+		})
+	})
 
 	// ===== WEBSOCKET ROUTES - PHASE 3 CRITICAL SECTION =====
 	log.Println("Registering WebSocket routes...")
-	
+
 	// WebSocket stats endpoint (protected)
 	protected.Get("/ws/stats", relayHandler.GetStats())
 
@@ -212,42 +317,49 @@ func main() {
 	app.Use("/ws", relayHandler.UpgradeHandler())
 	app.Get("/ws", relayHandler.WebSocketHandler())
 	log.Println("✅ Registered /ws WebSocket endpoint")
-	
+
 	// Debug endpoint to verify routes work
-	app.Get("/debug/phase3", func(c *fiber.Ctx) error {
+	app.Get("/debug/phase4", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
-			"message": "Phase 3 WebSocket integration is working!",
-			"websocket_endpoint": "/ws",
-			"stats_endpoint": "/api/v1/ws/stats",
-			"hub_active": hub != nil,
+			"message": "Phase 4 Media & Storage integration is working!",
+			"endpoints": fiber.Map{
+				"websocket": "/ws",
+				"stats":     "/api/v1/ws/stats",
+				"media":     "/api/v1/media/*",
+				"gallery":   "/api/v1/gallery/*",
+			},
+			"services": fiber.Map{
+				"hub_active":   hub != nil,
+				"minio_active": minioClient != nil,
+			},
 		})
 	})
-	log.Println("✅ Registered /debug/phase3")
+	log.Println("✅ Registered /debug/phase4")
 	// ===== END WEBSOCKET ROUTES =====
 
 	// Log all registered routes (debug)
 	routes := app.GetRoutes()
 	log.Printf("Total routes registered: %d", len(routes))
 	for _, route := range routes {
-		if route.Path == "/ws" || route.Path == "/api/v1/ws/stats" || route.Path == "/debug/phase3" {
+		if route.Path == "/ws" || route.Path == "/api/v1/ws/stats" ||
+			route.Path == "/debug/phase4" || route.Path == "/api/v1/media/upload" ||
+			route.Path == "/api/v1/gallery" {
 			log.Printf("  ✅ %s %s", route.Method, route.Path)
 		}
 	}
 
-	// Log MinIO client usage (temporary)
-	_ = minioClient
-
 	// Start server with graceful shutdown
 	go func() {
 		addr := fmt.Sprintf(":%s", cfg.App.Port)
-		log.Printf("=== PHASE 3 COMPLETE ===")
+		log.Printf("=== PHASE 4 COMPLETE ===")
 		log.Printf("Server starting on %s", addr)
 		log.Printf("Environment: %s", cfg.App.Env)
 		log.Printf("Debug mode: %v", cfg.App.Debug)
 		log.Printf("WebSocket endpoint: ws://localhost%s/ws", addr)
 		log.Printf("WebSocket stats: http://localhost%s/api/v1/ws/stats", addr)
+		log.Printf("Media upload: http://localhost%s/api/v1/media/upload", addr)
+		log.Printf("Gallery: http://localhost%s/api/v1/gallery", addr)
 		log.Printf("========================")
-
 
 		if err := app.Listen(addr); err != nil {
 			log.Fatal("Server failed to start:", err)
