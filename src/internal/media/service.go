@@ -125,11 +125,9 @@ func (s *Service) GetFile(ctx context.Context, mediaID string, userID string) (*
 func (s *Service) DeleteFile(ctx context.Context, mediaID string, userID string) error {
 	// Get media info first
 	var filename string
-	query := `SELECT filename FROM gallery_media WHERE id = $1 --
-		SELECT id FROM model_galleries WHERE model_id = $2
-	)`
+	query := `SELECT filename FROM gallery_media WHERE id = $1`
 
-	err := s.db.QueryRowContext(ctx, query, mediaID, userID).Scan(&filename)
+	err := s.db.QueryRowContext(ctx, query, mediaID).Scan(&filename)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return ErrMediaNotFound
