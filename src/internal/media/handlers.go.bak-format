@@ -119,16 +119,7 @@ func (h *Handler) GetFile(c *fiber.Ctx) error {
 	c.Set("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", media.OriginalFilename))
 
 	// Stream file
-	// Read all content
-	data, err := io.ReadAll(reader)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to read file",
-		})
-	}
-	
-	// Send the data
-	return c.Send(data)
+	data, err := io.ReadAll(reader); if err != nil { return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to read file"}) }; return c.Send(data)
 }
 
 // DeleteFile handles file deletion

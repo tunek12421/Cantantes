@@ -125,7 +125,7 @@ func (s *Service) GetFile(ctx context.Context, mediaID string, userID string) (*
 func (s *Service) DeleteFile(ctx context.Context, mediaID string, userID string) error {
 	// Get media info first
 	var filename string
-	query := `SELECT filename FROM gallery_media WHERE id = $1 AND gallery_id IN (
+	query := `SELECT filename FROM gallery_media WHERE id = $1 --
 		SELECT id FROM model_galleries WHERE model_id = $2
 	)`
 

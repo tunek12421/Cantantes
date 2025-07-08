@@ -1,0 +1,24 @@
+=== Archivo de prueba Chat E2EE ===
+Fecha: mar 08 jul 2025 15:30:13 -04
+Este archivo contiene datos de prueba
+Línea 1: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Línea 2: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Línea 3: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Línea 4: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Línea 5: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Línea 6: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Línea 7: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Línea 8: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Línea 9: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Línea 10: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Línea 11: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Línea 12: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Línea 13: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Línea 14: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Línea 15: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Línea 16: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Línea 17: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Línea 18: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Línea 19: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+Línea 20: Lorem ipsum dolor sit amet, consectetur adipiscing elit.
+=== Fin del archivo ===
