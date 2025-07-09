@@ -194,12 +194,30 @@ func main() {
 	authGroup.Post("/verify-otp", auth.RateLimitMiddleware(5), authHandler.VerifyOTP)
 	authGroup.Post("/refresh", authHandler.RefreshToken)
 
-	// Protected routes
-	protected := api.Group("/", auth.AuthMiddleware(jwtService))
-	protected.Post("/auth/logout", authHandler.Logout)
+	// Public user routes
+	publicUsers := api.Group("/users")
+	publicUsers.Get("/:id", userHandler.GetUser)
+
+	// Public gallery routes (with optional auth)
+	publicGallery := api.Group("/gallery", auth.OptionalAuthMiddleware(jwtService))
+	publicGallery.Get("/discover", galleryHandler.DiscoverGalleries)
+	publicGallery.Get("/:userId", galleryHandler.GetUserGallery)
+
+	// Models discovery routes (public with optional auth)
+	modelsGroup := api.Group("/models", auth.OptionalAuthMiddleware(jwtService))
+	modelsGroup.Get("/", discoveryHandler.GetModels)
+	modelsGroup.Get("/search", discoveryHandler.SearchModels)
+	modelsGroup.Get("/popular", discoveryHandler.GetPopularModels)
+	modelsGroup.Get("/new", discoveryHandler.GetNewModels)
+	modelsGroup.Get("/online", discoveryHandler.GetOnlineModels)
+	modelsGroup.Get("/:id", discoveryHandler.GetModelProfile)
+
+	// ===== PROTECTED ROUTES =====
+	// Auth logout (protected)
+	api.Post("/auth/logout", auth.AuthMiddleware(jwtService), authHandler.Logout)
 
 	// User routes (protected)
-	userGroup := protected.Group("/users")
+	userGroup := api.Group("/users", auth.AuthMiddleware(jwtService))
 	userGroup.Get("/me", userHandler.GetMe)
 	userGroup.Put("/me", userHandler.UpdateMe)
 	userGroup.Post("/avatar", userHandler.UpdateAvatar)
@@ -210,12 +228,8 @@ func main() {
 	userGroup.Post("/contacts/:id/block", userHandler.BlockContact)
 	userGroup.Post("/contacts/:id/unblock", userHandler.UnblockContact)
 
-	// Public user routes
-	publicUsers := api.Group("/users")
-	publicUsers.Get("/:id", userHandler.GetUser)
-
 	// Media routes (protected)
-	mediaGroup := protected.Group("/media")
+	mediaGroup := api.Group("/media", auth.AuthMiddleware(jwtService))
 	mediaGroup.Post("/upload", mediaHandler.Upload)
 	mediaGroup.Get("/:id", mediaHandler.GetFile)
 	mediaGroup.Delete("/:id", mediaHandler.DeleteFile)
@@ -238,32 +252,18 @@ func main() {
 	mediaGroup.Get("/:id/url", mediaHandler.GetPresignedURL)
 
 	// Gallery routes (protected)
-	galleryGroup := protected.Group("/gallery")
+	galleryGroup := api.Group("/gallery", auth.AuthMiddleware(jwtService))
 	galleryGroup.Get("/", galleryHandler.GetMyGallery)
 	galleryGroup.Post("/media", mediaHandler.AddToGallery)
 	galleryGroup.Delete("/media/:id", mediaHandler.RemoveFromGallery)
 	galleryGroup.Put("/settings", galleryHandler.UpdateGallerySettings)
 	galleryGroup.Get("/stats", galleryHandler.GetGalleryStats)
 
-	// Public gallery routes (with optional auth)
-	publicGallery := api.Group("/gallery", auth.OptionalAuthMiddleware(jwtService))
-	publicGallery.Get("/discover", galleryHandler.DiscoverGalleries)
-	publicGallery.Get("/:userId", galleryHandler.GetUserGallery)
-
-	// Models discovery routes (public with optional auth)
-	modelsGroup := api.Group("/models", auth.OptionalAuthMiddleware(jwtService))
-	modelsGroup.Get("/", discoveryHandler.GetModels)
-	modelsGroup.Get("/search", discoveryHandler.SearchModels)
-	modelsGroup.Get("/popular", discoveryHandler.GetPopularModels)
-	modelsGroup.Get("/new", discoveryHandler.GetNewModels)
-	modelsGroup.Get("/online", discoveryHandler.GetOnlineModels)
-	modelsGroup.Get("/:id", discoveryHandler.GetModelProfile)
-
 	// ===== WEBSOCKET ROUTES - PHASE 3 CRITICAL SECTION =====
 	log.Println("Registering WebSocket routes...")
 
 	// WebSocket stats endpoint (protected)
-	protected.Get("/ws/stats", relayHandler.GetStats())
+	api.Get("/ws/stats", auth.AuthMiddleware(jwtService), relayHandler.GetStats())
 
 	// Test WebSocket endpoint (sin autenticación)
 	app.Get("/test-ws", websocket.New(func(c *websocket.Conn) {
