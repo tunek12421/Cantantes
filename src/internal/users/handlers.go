@@ -374,11 +374,19 @@ func (h *Handler) getUserDevices(ctx context.Context, userID string) ([]*Device,
 	devices := make([]*Device, 0)
 	for rows.Next() {
 		var d Device
-		err := rows.Scan(&d.ID, &d.DeviceID, &d.Name, &d.Platform,
+		var name sql.NullString
+
+		err := rows.Scan(&d.ID, &d.DeviceID, &name, &d.Platform,
 			&d.PublicKey, &d.LastActive, &d.CreatedAt)
 		if err != nil {
 			continue
 		}
+
+		// Handle nullable fields
+		if name.Valid {
+			d.Name = &name.String
+		}
+
 		devices = append(devices, &d)
 	}
 

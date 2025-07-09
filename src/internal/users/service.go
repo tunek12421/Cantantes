@@ -36,6 +36,7 @@ func NewService(db *sql.DB) *Service {
 // GetUser retrieves a user by ID
 func (s *Service) GetUser(ctx context.Context, userID string) (*User, error) {
 	var user User
+	var username, displayName, avatarURL sql.NullString
 	var metadata sql.NullString
 
 	query := `
@@ -46,8 +47,8 @@ func (s *Service) GetUser(ctx context.Context, userID string) (*User, error) {
 		WHERE id = $1 AND deleted_at IS NULL`
 
 	err := s.db.QueryRowContext(ctx, query, userID).Scan(
-		&user.ID, &user.PhoneNumber, &user.Username, &user.DisplayName,
-		&user.AvatarURL, &user.Role, &user.Status, &user.IsOnline,
+		&user.ID, &user.PhoneNumber, &username, &displayName,
+		&avatarURL, &user.Role, &user.Status, &user.IsOnline,
 		&user.LastSeen, &user.CreatedAt, &user.UpdatedAt, &metadata,
 	)
 
@@ -56,6 +57,17 @@ func (s *Service) GetUser(ctx context.Context, userID string) (*User, error) {
 			return nil, ErrUserNotFound
 		}
 		return nil, err
+	}
+
+	// Handle nullable fields
+	if username.Valid {
+		user.Username = &username.String
+	}
+	if displayName.Valid {
+		user.DisplayName = &displayName.String
+	}
+	if avatarURL.Valid {
+		user.AvatarURL = &avatarURL.String
 	}
 
 	// Parse metadata if exists

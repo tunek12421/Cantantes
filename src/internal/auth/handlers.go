@@ -222,16 +222,21 @@ func (h *AuthHandler) getOrCreateUser(ctx context.Context, phoneNumber string) (
 
 	// Check if user exists
 	err := h.db.QueryRowContext(ctx,
-		"SELECT id FROM users WHERE phone_number = $1",
+		"SELECT id FROM users WHERE phone_number = $1 AND deleted_at IS NULL",
 		phoneNumber,
 	).Scan(&userID)
 
 	if err == sql.ErrNoRows {
-		// Create new user
+		// Create new user with all required fields
 		userID = uuid.New().String()
 		_, err = h.db.ExecContext(ctx,
-			`INSERT INTO users (id, phone_number, created_at, updated_at) 
-			VALUES ($1, $2, NOW(), NOW())`,
+			`INSERT INTO users (
+				id, phone_number, role, status, is_online, 
+				last_seen, created_at, updated_at
+			) VALUES (
+				$1, $2, 'user', 'active', false, 
+				NOW(), NOW(), NOW()
+			)`,
 			userID, phoneNumber,
 		)
 		if err != nil {
