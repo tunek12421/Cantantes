@@ -11,9 +11,11 @@ import (
 	"chat-e2ee/internal/auth"
 	"chat-e2ee/internal/config"
 	"chat-e2ee/internal/database"
+	"chat-e2ee/internal/discovery"
 	"chat-e2ee/internal/gallery"
 	"chat-e2ee/internal/media"
 	"chat-e2ee/internal/relay"
+	"chat-e2ee/internal/users"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -89,6 +91,12 @@ func main() {
 
 	// Initialize gallery handler
 	galleryHandler := gallery.NewHandler(db)
+
+	// Initialize user handler
+	userHandler := users.NewHandler(db, minioClient, cfg.MinIO.BucketMedia)
+
+	// Initialize discovery handler
+	discoveryHandler := discovery.NewHandler(db)
 
 	// Initialize WebSocket relay service - CRITICAL!
 	log.Println("Initializing WebSocket relay service...")
@@ -166,13 +174,16 @@ func main() {
 			"message": "Chat E2EE API v1",
 			"docs":    "/api/v1/docs",
 			"status":  "operational",
+			"phase":   "5 - Routes Complete",
 			"endpoints": fiber.Map{
 				"auth":      "/api/v1/auth/*",
 				"websocket": "/ws",
 				"stats":     "/api/v1/ws/stats",
 				"media":     "/api/v1/media/*",
 				"gallery":   "/api/v1/gallery/*",
+				"users":     "/api/v1/users/*",
 				"models":    "/api/v1/models/*",
+				"discovery": "/api/v1/models/*",
 			},
 		})
 	})
@@ -187,39 +198,21 @@ func main() {
 	protected := api.Group("/", auth.AuthMiddleware(jwtService))
 	protected.Post("/auth/logout", authHandler.Logout)
 
-	// User routes
+	// User routes (protected)
 	userGroup := protected.Group("/users")
-	userGroup.Get("/me", func(c *fiber.Ctx) error {
-		userID := c.Locals("userID").(string)
-		return c.JSON(fiber.Map{
-			"user_id": userID,
-			"message": "User profile endpoint - to be implemented",
-		})
-	})
-	userGroup.Put("/me", func(c *fiber.Ctx) error {
-		// TODO: Implement user profile update
-		return c.JSON(fiber.Map{
-			"message": "Update profile - to be implemented",
-		})
-	})
-	userGroup.Post("/avatar", func(c *fiber.Ctx) error {
-		// TODO: Implement avatar upload
-		return c.JSON(fiber.Map{
-			"message": "Avatar upload - to be implemented",
-		})
-	})
-	userGroup.Get("/contacts", func(c *fiber.Ctx) error {
-		// TODO: Implement contacts listing
-		return c.JSON(fiber.Map{
-			"message": "Contacts listing - to be implemented",
-		})
-	})
-	userGroup.Post("/contacts", func(c *fiber.Ctx) error {
-		// TODO: Implement add contact
-		return c.JSON(fiber.Map{
-			"message": "Add contact - to be implemented",
-		})
-	})
+	userGroup.Get("/me", userHandler.GetMe)
+	userGroup.Put("/me", userHandler.UpdateMe)
+	userGroup.Post("/avatar", userHandler.UpdateAvatar)
+	userGroup.Get("/contacts", userHandler.GetContacts)
+	userGroup.Post("/contacts", userHandler.AddContact)
+	userGroup.Put("/contacts/:id", userHandler.UpdateContact)
+	userGroup.Delete("/contacts/:id", userHandler.RemoveContact)
+	userGroup.Post("/contacts/:id/block", userHandler.BlockContact)
+	userGroup.Post("/contacts/:id/unblock", userHandler.UnblockContact)
+
+	// Public user routes
+	publicUsers := api.Group("/users")
+	publicUsers.Get("/:id", userHandler.GetUser)
 
 	// Media routes (protected)
 	mediaGroup := protected.Group("/media")
@@ -259,36 +252,12 @@ func main() {
 
 	// Models discovery routes (public with optional auth)
 	modelsGroup := api.Group("/models", auth.OptionalAuthMiddleware(jwtService))
-	modelsGroup.Get("/", func(c *fiber.Ctx) error {
-		// TODO: Implement models listing
-		page := c.QueryInt("page", 1)
-		pageSize := c.QueryInt("page_size", 20)
-
-		return c.JSON(fiber.Map{
-			"message":   "Models listing - to be implemented",
-			"page":      page,
-			"page_size": pageSize,
-			"models":    []interface{}{},
-			"has_more":  false,
-		})
-	})
-	modelsGroup.Get("/search", func(c *fiber.Ctx) error {
-		// TODO: Implement models search
-		query := c.Query("q")
-		return c.JSON(fiber.Map{
-			"message": "Models search - to be implemented",
-			"query":   query,
-			"results": []interface{}{},
-		})
-	})
-	modelsGroup.Get("/:id", func(c *fiber.Ctx) error {
-		// TODO: Implement model profile
-		modelID := c.Params("id")
-		return c.JSON(fiber.Map{
-			"message":  "Model profile - to be implemented",
-			"model_id": modelID,
-		})
-	})
+	modelsGroup.Get("/", discoveryHandler.GetModels)
+	modelsGroup.Get("/search", discoveryHandler.SearchModels)
+	modelsGroup.Get("/popular", discoveryHandler.GetPopularModels)
+	modelsGroup.Get("/new", discoveryHandler.GetNewModels)
+	modelsGroup.Get("/online", discoveryHandler.GetOnlineModels)
+	modelsGroup.Get("/:id", discoveryHandler.GetModelProfile)
 
 	// ===== WEBSOCKET ROUTES - PHASE 3 CRITICAL SECTION =====
 	log.Println("Registering WebSocket routes...")
@@ -319,22 +288,59 @@ func main() {
 	log.Println("✅ Registered /ws WebSocket endpoint")
 
 	// Debug endpoint to verify routes work
-	app.Get("/debug/phase4", func(c *fiber.Ctx) error {
+	app.Get("/debug/phase5", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
-			"message": "Phase 4 Media & Storage integration is working!",
+			"message": "Phase 5 API Routes completed!",
 			"endpoints": fiber.Map{
-				"websocket": "/ws",
-				"stats":     "/api/v1/ws/stats",
-				"media":     "/api/v1/media/*",
-				"gallery":   "/api/v1/gallery/*",
-			},
-			"services": fiber.Map{
-				"hub_active":   hub != nil,
-				"minio_active": minioClient != nil,
+				"auth": fiber.Map{
+					"request-otp": "POST /api/v1/auth/request-otp",
+					"verify-otp":  "POST /api/v1/auth/verify-otp",
+					"refresh":     "POST /api/v1/auth/refresh",
+					"logout":      "POST /api/v1/auth/logout",
+				},
+				"users": fiber.Map{
+					"profile":        "GET /api/v1/users/me",
+					"update":         "PUT /api/v1/users/me",
+					"avatar":         "POST /api/v1/users/avatar",
+					"contacts":       "GET /api/v1/users/contacts",
+					"add-contact":    "POST /api/v1/users/contacts",
+					"update-contact": "PUT /api/v1/users/contacts/:id",
+					"remove-contact": "DELETE /api/v1/users/contacts/:id",
+					"block":          "POST /api/v1/users/contacts/:id/block",
+					"unblock":        "POST /api/v1/users/contacts/:id/unblock",
+					"public-profile": "GET /api/v1/users/:id",
+				},
+				"models": fiber.Map{
+					"list":    "GET /api/v1/models",
+					"search":  "GET /api/v1/models/search",
+					"popular": "GET /api/v1/models/popular",
+					"new":     "GET /api/v1/models/new",
+					"online":  "GET /api/v1/models/online",
+					"profile": "GET /api/v1/models/:id",
+				},
+				"media": fiber.Map{
+					"upload":    "POST /api/v1/media/upload",
+					"get":       "GET /api/v1/media/:id",
+					"delete":    "DELETE /api/v1/media/:id",
+					"thumbnail": "GET /api/v1/media/thumbnail/:name",
+				},
+				"gallery": fiber.Map{
+					"my-gallery":   "GET /api/v1/gallery",
+					"add-media":    "POST /api/v1/gallery/media",
+					"remove-media": "DELETE /api/v1/gallery/media/:id",
+					"settings":     "PUT /api/v1/gallery/settings",
+					"stats":        "GET /api/v1/gallery/stats",
+					"discover":     "GET /api/v1/gallery/discover",
+					"user-gallery": "GET /api/v1/gallery/:userId",
+				},
+				"websocket": fiber.Map{
+					"connect": "WS /ws?token=JWT_TOKEN",
+					"stats":   "GET /api/v1/ws/stats",
+				},
 			},
 		})
 	})
-	log.Println("✅ Registered /debug/phase4")
+	log.Println("✅ Registered /debug/phase5")
 	// ===== END WEBSOCKET ROUTES =====
 
 	// Log all registered routes (debug)
@@ -342,8 +348,9 @@ func main() {
 	log.Printf("Total routes registered: %d", len(routes))
 	for _, route := range routes {
 		if route.Path == "/ws" || route.Path == "/api/v1/ws/stats" ||
-			route.Path == "/debug/phase4" || route.Path == "/api/v1/media/upload" ||
-			route.Path == "/api/v1/gallery" {
+			route.Path == "/debug/phase5" || route.Path == "/api/v1/media/upload" ||
+			route.Path == "/api/v1/gallery" || route.Path == "/api/v1/users/me" ||
+			route.Path == "/api/v1/models" {
 			log.Printf("  ✅ %s %s", route.Method, route.Path)
 		}
 	}
@@ -351,14 +358,18 @@ func main() {
 	// Start server with graceful shutdown
 	go func() {
 		addr := fmt.Sprintf(":%s", cfg.App.Port)
-		log.Printf("=== PHASE 4 COMPLETE ===")
+		log.Printf("=== PHASE 5 COMPLETE ===")
 		log.Printf("Server starting on %s", addr)
 		log.Printf("Environment: %s", cfg.App.Env)
 		log.Printf("Debug mode: %v", cfg.App.Debug)
+		log.Printf("All API routes implemented!")
+		log.Printf("========================")
 		log.Printf("WebSocket endpoint: ws://localhost%s/ws", addr)
 		log.Printf("WebSocket stats: http://localhost%s/api/v1/ws/stats", addr)
 		log.Printf("Media upload: http://localhost%s/api/v1/media/upload", addr)
 		log.Printf("Gallery: http://localhost%s/api/v1/gallery", addr)
+		log.Printf("User profile: http://localhost%s/api/v1/users/me", addr)
+		log.Printf("Model discovery: http://localhost%s/api/v1/models", addr)
 		log.Printf("========================")
 
 		if err := app.Listen(addr); err != nil {
