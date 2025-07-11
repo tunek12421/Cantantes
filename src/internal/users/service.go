@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
@@ -35,16 +36,20 @@ func NewService(db *sql.DB) *Service {
 
 // GetUser retrieves a user by ID
 func (s *Service) GetUser(ctx context.Context, userID string) (*User, error) {
+	log.Printf("[GetUser] Starting - Looking for user ID: %s", userID)
+
 	var user User
 	var username, displayName, avatarURL sql.NullString
 	var metadata sql.NullString
 
 	query := `
-		SELECT id, phone_number, username, display_name, avatar_url, 
-		       role, status, is_online, last_seen, created_at, 
-		       updated_at, metadata
-		FROM users 
-		WHERE id = $1 AND deleted_at IS NULL`
+        SELECT id, phone_number, username, display_name, avatar_url, 
+               role, status, is_online, last_seen, created_at, 
+               updated_at, metadata
+        FROM users 
+        WHERE id = $1 AND deleted_at IS NULL`
+
+	log.Printf("[GetUser] Executing query for user: %s", userID)
 
 	err := s.db.QueryRowContext(ctx, query, userID).Scan(
 		&user.ID, &user.PhoneNumber, &username, &displayName,
@@ -53,11 +58,15 @@ func (s *Service) GetUser(ctx context.Context, userID string) (*User, error) {
 	)
 
 	if err != nil {
+		log.Printf("[GetUser] Database error for user %s: %v", userID, err)
 		if err == sql.ErrNoRows {
+			log.Printf("[GetUser] User not found: %s", userID)
 			return nil, ErrUserNotFound
 		}
 		return nil, err
 	}
+
+	log.Printf("[GetUser] User found: %s, role: %s, status: %s", user.ID, user.Role, user.Status)
 
 	// Handle nullable fields
 	if username.Valid {
@@ -72,9 +81,12 @@ func (s *Service) GetUser(ctx context.Context, userID string) (*User, error) {
 
 	// Parse metadata if exists
 	if metadata.Valid && metadata.String != "" {
-		json.Unmarshal([]byte(metadata.String), &user.Metadata)
+		if err := json.Unmarshal([]byte(metadata.String), &user.Metadata); err != nil {
+			log.Printf("[GetUser] Error parsing metadata: %v", err)
+		}
 	}
 
+	log.Printf("[GetUser] Successfully retrieved user: %s", userID)
 	return &user, nil
 }
 

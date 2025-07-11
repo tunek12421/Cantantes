@@ -194,7 +194,23 @@ func main() {
 	authGroup.Post("/verify-otp", auth.RateLimitMiddleware(5), authHandler.VerifyOTP)
 	authGroup.Post("/refresh", authHandler.RefreshToken)
 
-	// Public user routes
+	// ===== PROTECTED ROUTES =====
+	// Auth logout (protected)
+	api.Post("/auth/logout", auth.AuthMiddleware(jwtService), authHandler.Logout)
+
+	// User routes (protected) - MOVED BEFORE PUBLIC ROUTES
+	userGroup := api.Group("/users", auth.AuthMiddleware(jwtService))
+	userGroup.Get("/me", userHandler.GetMe)
+	userGroup.Put("/me", userHandler.UpdateMe)
+	userGroup.Post("/avatar", userHandler.UpdateAvatar)
+	userGroup.Get("/contacts", userHandler.GetContacts)
+	userGroup.Post("/contacts", userHandler.AddContact)
+	userGroup.Put("/contacts/:id", userHandler.UpdateContact)
+	userGroup.Delete("/contacts/:id", userHandler.RemoveContact)
+	userGroup.Post("/contacts/:id/block", userHandler.BlockContact)
+	userGroup.Post("/contacts/:id/unblock", userHandler.UnblockContact)
+
+	// Public user routes - NOW AFTER PROTECTED ROUTES
 	publicUsers := api.Group("/users")
 	publicUsers.Get("/:id", userHandler.GetUser)
 
@@ -211,22 +227,6 @@ func main() {
 	modelsGroup.Get("/new", discoveryHandler.GetNewModels)
 	modelsGroup.Get("/online", discoveryHandler.GetOnlineModels)
 	modelsGroup.Get("/:id", discoveryHandler.GetModelProfile)
-
-	// ===== PROTECTED ROUTES =====
-	// Auth logout (protected)
-	api.Post("/auth/logout", auth.AuthMiddleware(jwtService), authHandler.Logout)
-
-	// User routes (protected)
-	userGroup := api.Group("/users", auth.AuthMiddleware(jwtService))
-	userGroup.Get("/me", userHandler.GetMe)
-	userGroup.Put("/me", userHandler.UpdateMe)
-	userGroup.Post("/avatar", userHandler.UpdateAvatar)
-	userGroup.Get("/contacts", userHandler.GetContacts)
-	userGroup.Post("/contacts", userHandler.AddContact)
-	userGroup.Put("/contacts/:id", userHandler.UpdateContact)
-	userGroup.Delete("/contacts/:id", userHandler.RemoveContact)
-	userGroup.Post("/contacts/:id/block", userHandler.BlockContact)
-	userGroup.Post("/contacts/:id/unblock", userHandler.UnblockContact)
 
 	// Media routes (protected)
 	mediaGroup := api.Group("/media", auth.AuthMiddleware(jwtService))

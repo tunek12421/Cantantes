@@ -3,6 +3,7 @@ package users
 import (
 	"context"
 	"database/sql"
+	"log"
 	"strings"
 
 	"chat-e2ee/internal/media"
@@ -28,10 +29,21 @@ func NewHandler(db *sql.DB, minioClient *minio.Client, bucketMedia string) *Hand
 // GetMe returns the authenticated user's profile
 func (h *Handler) GetMe(c *fiber.Ctx) error {
 	userID := c.Locals("userID").(string)
+	log.Printf("[GetMe] UserID from context: '%s'", userID)
+
+	// Verificar que tenemos un userID válido
+	if userID == "" || userID == "me" {
+		log.Printf("[GetMe] Invalid userID from context: '%s'", userID)
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"error": "User not authenticated properly",
+		})
+	}
 
 	// Get user info
+	log.Printf("[GetMe] Fetching user info for ID: %s", userID)
 	user, err := h.service.GetUser(c.Context(), userID)
 	if err != nil {
+		log.Printf("[GetMe] Error fetching user %s: %v", userID, err)
 		if err == ErrUserNotFound {
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 				"error": "User not found",
@@ -42,9 +54,12 @@ func (h *Handler) GetMe(c *fiber.Ctx) error {
 		})
 	}
 
+	log.Printf("[GetMe] User fetched successfully: %s", user.ID)
+
 	// Get user devices
 	devices, err := h.getUserDevices(c.Context(), userID)
 	if err != nil {
+		log.Printf("[GetMe] Error fetching devices: %v", err)
 		// Log error but don't fail the request
 		devices = []*Device{}
 	}
@@ -62,6 +77,7 @@ func (h *Handler) GetMe(c *fiber.Ctx) error {
 		},
 	}
 
+	log.Printf("[GetMe] Returning profile for user: %s", userID)
 	return c.JSON(UserProfileResponse{
 		User:     user,
 		Devices:  devices,

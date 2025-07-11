@@ -3,6 +3,7 @@ package gallery
 import (
 	"database/sql"
 	"errors"
+	"log"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -194,14 +195,18 @@ func (h *Handler) DiscoverGalleries(c *fiber.Ctx) error {
 // GetGalleryStats returns statistics for a gallery
 func (h *Handler) GetGalleryStats(c *fiber.Ctx) error {
 	userID := c.Locals("userID").(string)
+	log.Printf("[GetGalleryStats] Starting for userID: %s", userID)
 
 	// Get gallery
 	gallery, err := h.service.GetGallery(c.Context(), userID)
 	if err != nil {
+		log.Printf("[GetGalleryStats] Error getting gallery for user %s: %v", userID, err)
 		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 			"error": "Gallery not found",
 		})
 	}
+
+	log.Printf("[GetGalleryStats] Gallery found: ID=%s, MediaCount=%d", gallery.ID, gallery.MediaCount)
 
 	// Get stats by type
 	var stats []struct {
@@ -211,13 +216,16 @@ func (h *Handler) GetGalleryStats(c *fiber.Ctx) error {
 	}
 
 	query := `
-		SELECT type, COUNT(*) as count, SUM(size_bytes) as total_size
-		FROM gallery_media
-		WHERE gallery_id = $1
-		GROUP BY type`
+        SELECT type, COUNT(*) as count, SUM(size_bytes) as total_size
+        FROM gallery_media
+        WHERE gallery_id = $1
+        GROUP BY type`
+
+	log.Printf("[GetGalleryStats] Executing stats query for gallery_id: %s", gallery.ID)
 
 	rows, err := h.service.db.QueryContext(c.Context(), query, gallery.ID)
 	if err != nil {
+		log.Printf("[GetGalleryStats] Database query error: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to fetch stats",
 		})
@@ -230,9 +238,21 @@ func (h *Handler) GetGalleryStats(c *fiber.Ctx) error {
 			Count int    `json:"count"`
 			Size  int64  `json:"total_size"`
 		}
-		rows.Scan(&stat.Type, &stat.Count, &stat.Size)
+
+		if err := rows.Scan(&stat.Type, &stat.Count, &stat.Size); err != nil {
+			log.Printf("[GetGalleryStats] Error scanning row: %v", err)
+			continue
+		}
+
+		log.Printf("[GetGalleryStats] Found stat: type=%s, count=%d, size=%d", stat.Type, stat.Count, stat.Size)
 		stats = append(stats, stat)
 	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("[GetGalleryStats] Rows iteration error: %v", err)
+	}
+
+	log.Printf("[GetGalleryStats] Returning stats: gallery_id=%s, total_stats=%d", gallery.ID, len(stats))
 
 	return c.JSON(fiber.Map{
 		"gallery_id":    gallery.ID,
