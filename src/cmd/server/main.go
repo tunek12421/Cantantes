@@ -214,6 +214,9 @@ func main() {
 	publicUsers := api.Group("/users")
 	publicUsers.Get("/:id", userHandler.GetUser)
 
+	// Public gallery routes - Registrar directamente sin grupo
+	api.Get("/gallery/discover", auth.OptionalAuthMiddleware(jwtService), galleryHandler.DiscoverGalleries)
+
 	// Gallery routes (protected) - MOVED BEFORE PUBLIC GALLERY ROUTES
 	galleryGroup := api.Group("/gallery", auth.AuthMiddleware(jwtService))
 	galleryGroup.Get("/", galleryHandler.GetMyGallery)
@@ -222,11 +225,7 @@ func main() {
 	galleryGroup.Delete("/media/:id", mediaHandler.RemoveFromGallery)
 	galleryGroup.Put("/settings", galleryHandler.UpdateGallerySettings)
 
-	// Public gallery routes (with optional auth) - AFTER PROTECTED ROUTES
-	publicGallery := api.Group("/gallery", auth.OptionalAuthMiddleware(jwtService))
-	publicGallery.Get("/discover", galleryHandler.DiscoverGalleries)
-	publicGallery.Get("/:userId", galleryHandler.GetUserGallery)
-
+	api.Get("/gallery/:userId", auth.OptionalAuthMiddleware(jwtService), galleryHandler.GetUserGallery)
 	// Models discovery routes (public with optional auth)
 	modelsGroup := api.Group("/models", auth.OptionalAuthMiddleware(jwtService))
 	modelsGroup.Get("/", discoveryHandler.GetModels)
