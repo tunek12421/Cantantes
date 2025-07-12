@@ -214,7 +214,15 @@ func main() {
 	publicUsers := api.Group("/users")
 	publicUsers.Get("/:id", userHandler.GetUser)
 
-	// Public gallery routes (with optional auth)
+	// Gallery routes (protected) - MOVED BEFORE PUBLIC GALLERY ROUTES
+	galleryGroup := api.Group("/gallery", auth.AuthMiddleware(jwtService))
+	galleryGroup.Get("/", galleryHandler.GetMyGallery)
+	galleryGroup.Get("/stats", galleryHandler.GetGalleryStats) // MOVED BEFORE publicGallery routes
+	galleryGroup.Post("/media", mediaHandler.AddToGallery)
+	galleryGroup.Delete("/media/:id", mediaHandler.RemoveFromGallery)
+	galleryGroup.Put("/settings", galleryHandler.UpdateGallerySettings)
+
+	// Public gallery routes (with optional auth) - AFTER PROTECTED ROUTES
 	publicGallery := api.Group("/gallery", auth.OptionalAuthMiddleware(jwtService))
 	publicGallery.Get("/discover", galleryHandler.DiscoverGalleries)
 	publicGallery.Get("/:userId", galleryHandler.GetUserGallery)
@@ -250,14 +258,6 @@ func main() {
 		return c.SendStream(reader)
 	})
 	mediaGroup.Get("/:id/url", mediaHandler.GetPresignedURL)
-
-	// Gallery routes (protected)
-	galleryGroup := api.Group("/gallery", auth.AuthMiddleware(jwtService))
-	galleryGroup.Get("/", galleryHandler.GetMyGallery)
-	galleryGroup.Post("/media", mediaHandler.AddToGallery)
-	galleryGroup.Delete("/media/:id", mediaHandler.RemoveFromGallery)
-	galleryGroup.Put("/settings", galleryHandler.UpdateGallerySettings)
-	galleryGroup.Get("/stats", galleryHandler.GetGalleryStats)
 
 	// ===== WEBSOCKET ROUTES - PHASE 3 CRITICAL SECTION =====
 	log.Println("Registering WebSocket routes...")

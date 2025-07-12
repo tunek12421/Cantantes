@@ -42,7 +42,7 @@ func (h *Handler) GetMyGallery(c *fiber.Ctx) error {
 			}
 		} else {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-				"error": "Failed to fetch gallery",
+				"error": "Failed to fetch gallery 1",
 			})
 		}
 	}
@@ -83,19 +83,36 @@ func (h *Handler) GetMyGallery(c *fiber.Ctx) error {
 // GetUserGallery returns a specific user's public gallery
 func (h *Handler) GetUserGallery(c *fiber.Ctx) error {
 	userID := c.Params("userId")
+	log.Printf("[GetUserGallery] Starting - userId from params: '%s'", userID)
+
+	// Log if userID is empty or has issues
+	if userID == "" {
+		log.Printf("[GetUserGallery] ERROR: Empty userID received")
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "User ID is required",
+		})
+	}
 
 	// Get gallery
+	log.Printf("[GetUserGallery] Fetching gallery for userID: %s", userID)
 	gallery, err := h.service.GetGallery(c.Context(), userID)
 	if err != nil {
+		log.Printf("[GetUserGallery] Error getting gallery: %v (type: %T)", err, err)
+
 		if err == ErrGalleryNotFound {
+			log.Printf("[GetUserGallery] Gallery not found for user: %s", userID)
 			return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 				"error": "Gallery not found",
 			})
 		}
+
+		log.Printf("[GetUserGallery] Unexpected error fetching gallery for user %s: %v", userID, err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"error": "Failed to fetch gallery",
+			"error": "Failed to fetch gallery 2",
 		})
 	}
+
+	log.Printf("[GetUserGallery] Gallery found - ID: %s, ModelID: %s", gallery.ID, gallery.ModelID)
 
 	// Parse filters - only show public items for other users
 	filters := &MediaFilters{
@@ -106,18 +123,25 @@ func (h *Handler) GetUserGallery(c *fiber.Ctx) error {
 
 	// Force public only for non-owner
 	requestingUserID := c.Locals("userID")
+	log.Printf("[GetUserGallery] Requesting userID: %v, Gallery owner: %s", requestingUserID, userID)
+
 	if requestingUserID != userID {
 		isPublic := true
 		filters.IsPublic = &isPublic
+		log.Printf("[GetUserGallery] Non-owner access - forcing public filter")
 	}
 
 	// Get media items
+	log.Printf("[GetUserGallery] Getting media items for gallery: %s", gallery.ID)
 	items, totalCount, err := h.service.GetGalleryMedia(c.Context(), gallery.ID, filters)
 	if err != nil {
+		log.Printf("[GetUserGallery] Error fetching media: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"error": "Failed to fetch gallery media",
 		})
 	}
+
+	log.Printf("[GetUserGallery] Success - Found %d items, total: %d", len(items), totalCount)
 
 	// Return response
 	return c.JSON(fiber.Map{
