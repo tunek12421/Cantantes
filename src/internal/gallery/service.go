@@ -12,12 +12,12 @@ import (
 
 // Service handles gallery operations
 type Service struct {
-	db *sql.DB
+	DB *sql.DB
 }
 
 // NewService creates a new gallery service
 func NewService(db *sql.DB) *Service {
-	return &Service{db: db}
+	return &Service{DB: db}
 }
 
 // CreateGallery creates a new gallery for a model
@@ -37,7 +37,7 @@ func (s *Service) CreateGallery(ctx context.Context, modelID string) (*Gallery, 
 		SET updated_at = $4
 		RETURNING id, created_at`
 
-	err := s.db.QueryRowContext(ctx, query,
+	err := s.DB.QueryRowContext(ctx, query,
 		gallery.ID, gallery.ModelID, gallery.CreatedAt, gallery.UpdatedAt,
 	).Scan(&gallery.ID, &gallery.CreatedAt)
 
@@ -58,7 +58,7 @@ func (s *Service) GetGallery(ctx context.Context, modelID string) (*Gallery, err
 		FROM model_galleries
 		WHERE model_id = $1`
 
-	err := s.db.QueryRowContext(ctx, query, modelID).Scan(
+	err := s.DB.QueryRowContext(ctx, query, modelID).Scan(
 		&gallery.ID, &gallery.ModelID, &gallery.CreatedAt,
 		&gallery.UpdatedAt, &gallery.TotalSize, &gallery.MediaCount,
 	)
@@ -117,13 +117,13 @@ func (s *Service) GetGalleryMedia(ctx context.Context, galleryID string, filters
 
 	// Get total count
 	var totalCount int
-	err := s.db.QueryRowContext(ctx, countQuery, countArgs...).Scan(&totalCount)
+	err := s.DB.QueryRowContext(ctx, countQuery, countArgs...).Scan(&totalCount)
 	if err != nil {
 		return nil, 0, err
 	}
 
 	// Get media items
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := s.DB.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -161,7 +161,7 @@ func (s *Service) UpdateGallerySettings(ctx context.Context, galleryID string, s
 		SET settings = $1, updated_at = NOW()
 		WHERE id = $2`
 
-	_, err = s.db.ExecContext(ctx, query, settingsJSON, galleryID)
+	_, err = s.DB.ExecContext(ctx, query, settingsJSON, galleryID)
 	return err
 }
 
@@ -180,7 +180,7 @@ func (s *Service) GetModelGalleries(ctx context.Context, limit, offset int) ([]*
 		ORDER BY g.updated_at DESC
 		LIMIT $1 OFFSET $2`
 
-	rows, err := s.db.QueryContext(ctx, query, limit, offset)
+	rows, err := s.DB.QueryContext(ctx, query, limit, offset)
 	if err != nil {
 		return nil, err
 	}

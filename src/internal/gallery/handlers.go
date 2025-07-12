@@ -223,7 +223,7 @@ func (h *Handler) GetGalleryStats(c *fiber.Ctx) error {
 
 	log.Printf("[GetGalleryStats] Executing stats query for gallery_id: %s", gallery.ID)
 
-	rows, err := h.service.db.QueryContext(c.Context(), query, gallery.ID)
+	rows, err := h.service.DB.QueryContext(c.Context(), query, gallery.ID)
 	if err != nil {
 		log.Printf("[GetGalleryStats] Database query error: %v", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
